@@ -27,10 +27,10 @@ class FloodFillTest {
         )
 
         // Run evaluateAndCaptureRegions
-        val capturedCount = FloodFill.evaluateAndCaptureRegions(grid, enemies)
+        val captured = FloodFill.evaluateAndCaptureRegions(grid, enemies)
 
         // Since there is only one big empty region and it contains an enemy, no cells should be captured
-        assertEquals(0, capturedCount)
+        assertEquals(0, captured.size)
 
         // Ensure all inner cells are still EMPTY
         for (x in 1 until width - 1) {
@@ -68,10 +68,10 @@ class FloodFillTest {
         // Total empty cells in left region: 4 * 8 = 32
         // Total empty cells in right region: 3 * 8 = 24
 
-        val capturedCount = FloodFill.evaluateAndCaptureRegions(grid, enemies)
+        val captured = FloodFill.evaluateAndCaptureRegions(grid, enemies)
 
         // The left region should be fully captured because it has no enemies!
-        assertEquals(32, capturedCount)
+        assertEquals(32, captured.size)
 
         // Verify left region is indeed captured
         for (x in 1..4) {
@@ -107,10 +107,10 @@ class FloodFillTest {
         // No enemies at all
         val enemies = emptyList<Enemy>()
 
-        val capturedCount = FloodFill.evaluateAndCaptureRegions(grid, enemies)
+        val captured = FloodFill.evaluateAndCaptureRegions(grid, enemies)
 
         // Both regions should be captured: 32 + 24 = 56 cells
-        assertEquals(56, capturedCount)
+        assertEquals(56, captured.size)
 
         // Verify whole grid (except the separator wall and border which are already CAPTURED) is CAPTURED
         for (x in 0 until width) {

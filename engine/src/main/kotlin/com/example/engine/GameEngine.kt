@@ -48,6 +48,34 @@ class GameEngine(
         private set
     val trail = mutableListOf<Pair<Int, Int>>()
 
+    /**
+     * Recent cells the player's head has passed through, most recent first
+     * (index 0 is always the current cell). Used by the UI to render a segmented
+     * caterpillar body trailing behind the head. Cleared on crash reset.
+     */
+    val pathHistory = ArrayDeque<Pair<Int, Int>>()
+
+    /**
+     * Interpolation fraction in [0, 1] of the head's glide from pathHistory[1]
+     * toward pathHistory[0]. Pinned to 1.0 while the player is stationary so
+     * the body rests instead of jittering.
+     */
+    var moveProgress = 1.0
+        private set
+    private var advancing = false
+
+    /** Monotonic counter incremented every time a region capture completes. */
+    var captureCount = 0
+        private set
+
+    /** The cells captured by the most recent trail closure (trail + flood-filled). */
+    var lastCapturedCells: List<Pair<Int, Int>> = emptyList()
+        private set
+
+    /** Monotonic counter incremented every time the player crashes. */
+    var crashCount = 0
+        private set
+
     // Enemy state
     val enemies = mutableListOf<Enemy>()
 
@@ -67,7 +95,16 @@ class GameEngine(
     private val playerMoveInterval = 0.08 // seconds per grid step (approx 12.5 steps/sec)
     private var playerMoveTimer = 0.0
 
+    private companion object {
+        /** Half the player's collision box in cell units (the sprite is ~0.8 cells wide). */
+        const val PLAYER_HALF_SIZE = 0.4
+
+        /** How many recent head positions to keep for caterpillar body rendering. */
+        const val MAX_PATH_HISTORY = 24
+    }
+
     init {
+        pathHistory.addFirst(Pair(playerX, playerY))
         initializeEnemies()
         recalculateCapturedPercentage()
     }
@@ -94,18 +131,18 @@ class GameEngine(
             enemies.add(Bouncer(idCounter++, rx, ry, vx, vy))
         }
 
-        // Spawn Crawlers (border-following enemies)
+        // Spawn Crawlers (border-following enemies) directly against the left or
+        // right wall so they start hugging the boundary immediately. Heading runs
+        // down along the left wall / up along the right wall, which puts the wall
+        // on the crawler's right hand.
         for (i in 0 until levelConfig.crawlerCount) {
-            // Crawlers start near the perimeter but inside empty cells
-            val rx = if (random.nextBoolean()) 2.0 else (width - 3).toDouble()
-            val ry = random.nextDouble(5.0, (height - 6).toDouble())
-            
-            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val onLeftWall = random.nextBoolean()
+            val rx = if (onLeftWall) 1.0 else (width - 2).toDouble()
+            val ry = random.nextInt(3, height - 3).toDouble()
             val speed = levelConfig.enemySpeed
-            val vx = speed * kotlin.math.cos(angle)
-            val vy = speed * kotlin.math.sin(angle)
+            val vy = if (onLeftWall) speed else -speed
 
-            enemies.add(Crawler(idCounter++, rx, ry, vx, vy))
+            enemies.add(Crawler(idCounter++, rx, ry, 0.0, vy))
         }
     }
 
@@ -160,31 +197,62 @@ class GameEngine(
         while (playerMoveTimer >= playerMoveInterval) {
             playerMoveTimer -= playerMoveInterval
             performPlayerGridStep()
-            
+
             // Re-check collisions after the player moves
             if (status == GameStateStatus.RUNNING && checkEnemyCollisions()) {
                 handleCrash()
                 break
             }
         }
+
+        // 5. Expose the head's interpolation fraction for smooth rendering
+        moveProgress = if (advancing) {
+            (playerMoveTimer / playerMoveInterval).coerceIn(0.0, 1.0)
+        } else {
+            1.0
+        }
     }
 
     /**
-     * Checks if any enemy touches the player cursor or any cell of the active drawing trail.
+     * Checks if any enemy circle overlaps the player cursor or any cell of the active
+     * drawing trail. Uses real distances (enemy radius vs. player half-size) rather
+     * than whole-cell overlap, so near misses feel fair.
      */
     private fun checkEnemyCollisions(): Boolean {
-        for (enemy in enemies) {
-            val ex = floor(enemy.x).toInt().coerceIn(0, width - 1)
-            val ey = floor(enemy.y).toInt().coerceIn(0, height - 1)
+        val playerCx = playerX + 0.5
+        val playerCy = playerY + 0.5
 
-            // Direct collision with player
-            if (ex == playerX && ey == playerY) {
+        for (enemy in enemies) {
+            // Enemy positions are cell coordinates; the visual center sits at +0.5.
+            val ecx = enemy.x + 0.5
+            val ecy = enemy.y + 0.5
+            val r = enemy.radius
+
+            // Direct collision with the player square (approximated as a circle)
+            val dx = ecx - playerCx
+            val dy = ecy - playerCy
+            val hitDistance = r + PLAYER_HALF_SIZE
+            if (dx * dx + dy * dy < hitDistance * hitDistance) {
                 return true
             }
 
-            // Collision with the temporary drawing trail
-            if (grid[ex][ey] == GridCellState.TRAIL) {
-                return true
+            // Collision with any trail cell the enemy circle overlaps
+            val minX = floor(ecx - r).toInt().coerceIn(0, width - 1)
+            val maxX = floor(ecx + r).toInt().coerceIn(0, width - 1)
+            val minY = floor(ecy - r).toInt().coerceIn(0, height - 1)
+            val maxY = floor(ecy + r).toInt().coerceIn(0, height - 1)
+            for (cx in minX..maxX) {
+                for (cy in minY..maxY) {
+                    if (grid[cx][cy] != GridCellState.TRAIL) continue
+                    // Circle vs. cell rectangle: clamp the center into the cell and compare
+                    val nearestX = ecx.coerceIn(cx.toDouble(), (cx + 1).toDouble())
+                    val nearestY = ecy.coerceIn(cy.toDouble(), (cy + 1).toDouble())
+                    val ddx = ecx - nearestX
+                    val ddy = ecy - nearestY
+                    if (ddx * ddx + ddy * ddy < r * r) {
+                        return true
+                    }
+                }
             }
         }
         return false
@@ -194,6 +262,7 @@ class GameEngine(
      * Performs a single discrete step of player cursor movement in the grid.
      */
     private fun performPlayerGridStep() {
+        advancing = false
         if (playerDirection == Direction.NONE) return
 
         val nextX = playerX + playerDirection.dx
@@ -213,26 +282,28 @@ class GameEngine(
                     // Success! Player re-entered safe captured territory and closed a region
                     playerX = nextX
                     playerY = nextY
+                    recordStep()
                     isDrawing = false
                     playerDirection = Direction.NONE
 
                     // Convert the trail to captured
-                    for (cell in trail) {
+                    val trailCells = trail.toList()
+                    for (cell in trailCells) {
                         grid[cell.first][cell.second] = GridCellState.CAPTURED
                     }
-                    val capturedInTrail = trail.size
                     trail.clear()
 
                     // Run the Flood Fill algorithm to evaluate and capture regions with no enemies
-                    val capturedInFill = FloodFill.evaluateAndCaptureRegions(grid, enemies)
+                    val filledCells = FloodFill.evaluateAndCaptureRegions(grid, enemies)
+
+                    // Record the capture event so the UI can animate the claimed area
+                    lastCapturedCells = trailCells + filledCells
+                    captureCount++
 
                     // Scoring
-                    val totalCaptured = capturedInTrail + capturedInFill
-                    score += totalCaptured * 15
+                    score += lastCapturedCells.size * 15
 
                     recalculateCapturedPercentage()
-
-                    // TODO: Trigger nice sound effect and visual particle effects here on region capture.
 
                     if (capturedPercentage >= levelConfig.targetPercentage) {
                         status = GameStateStatus.LEVEL_COMPLETE
@@ -241,12 +312,14 @@ class GameEngine(
                     // Just moving along the safe border
                     playerX = nextX
                     playerY = nextY
+                    recordStep()
                 }
             }
             GridCellState.EMPTY -> {
                 // Enter or continue drawing a trail
                 playerX = nextX
                 playerY = nextY
+                recordStep()
                 isDrawing = true
                 grid[playerX][playerY] = GridCellState.TRAIL
                 trail.add(Pair(playerX, playerY))
@@ -259,12 +332,27 @@ class GameEngine(
     }
 
     /**
+     * Records a successful head movement into the path history ring used for
+     * caterpillar body rendering.
+     */
+    private fun recordStep() {
+        pathHistory.addFirst(Pair(playerX, playerY))
+        while (pathHistory.size > MAX_PATH_HISTORY) {
+            pathHistory.removeLast()
+        }
+        advancing = true
+    }
+
+    /**
      * Handles the crash event when the player hits an enemy, their trail, or crosses their own trail.
      */
     private fun handleCrash() {
         lives--
+        crashCount++
         playerDirection = Direction.NONE
         isDrawing = false
+        advancing = false
+        moveProgress = 1.0
 
         // Clear the unfinished trail and restore those cells back to EMPTY
         for (cell in trail) {
@@ -280,6 +368,10 @@ class GameEngine(
             playerY = 0
             status = GameStateStatus.CRASH_RESET
         }
+
+        // The head teleports on reset, so the body must not lag across the field
+        pathHistory.clear()
+        pathHistory.addFirst(Pair(playerX, playerY))
     }
 
     /**

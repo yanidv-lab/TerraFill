@@ -18,18 +18,19 @@ object FloodFill {
      *
      * @param grid The 2D playfield grid array of size [width][height].
      * @param enemies The list of active floating-point enemies.
-     * @return The number of newly captured cells during this evaluation.
+     * @return The newly captured cells (empty list if nothing was captured), so callers
+     *         can score them and drive capture animations.
      */
     fun evaluateAndCaptureRegions(
         grid: Array<Array<GridCellState>>,
         enemies: List<Enemy>
-    ): Int {
+    ): List<Pair<Int, Int>> {
         val width = grid.size
         val height = if (width > 0) grid[0].size else 0
-        if (width == 0 || height == 0) return 0
+        if (width == 0 || height == 0) return emptyList()
 
         val visited = Array(width) { BooleanArray(height) { false } }
-        var newlyCapturedCount = 0
+        val newlyCaptured = mutableListOf<Pair<Int, Int>>()
 
         // Find enemy grid positions for fast lookup
         val enemyPositions = enemies.map { enemy ->
@@ -53,14 +54,14 @@ object FloodFill {
                     if (!containsEnemy) {
                         for (cell in regionCells) {
                             grid[cell.first][cell.second] = GridCellState.CAPTURED
-                            newlyCapturedCount++
+                            newlyCaptured.add(cell)
                         }
                     }
                 }
             }
         }
 
-        return newlyCapturedCount
+        return newlyCaptured
     }
 
     /**

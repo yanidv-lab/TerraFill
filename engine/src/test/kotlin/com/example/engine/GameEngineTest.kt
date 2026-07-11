@@ -260,6 +260,149 @@ class GameEngineTest {
         assertEquals(1, engine.playerY)
     }
 
+    // ---------------------------------------------------------------- path history & interpolation
+
+    @Test
+    fun `path history tracks recent head cells, most recent first`() {
+        val engine = newEngine()
+        assertEquals(listOf(Pair(5, 0)), engine.pathHistory.toList())
+
+        engine.setDirection(Direction.DOWN)
+        engine.step()
+        engine.step()
+        engine.setDirection(Direction.RIGHT)
+        engine.step()
+
+        assertEquals(
+            listOf(Pair(6, 2), Pair(5, 2), Pair(5, 1), Pair(5, 0)),
+            engine.pathHistory.toList()
+        )
+    }
+
+    @Test
+    fun `move progress is pinned to 1 before the player ever moves`() {
+        val engine = newEngine()
+        engine.tick(0.04)
+        assertEquals(1.0, engine.moveProgress, 1e-9)
+    }
+
+    @Test
+    fun `move progress interpolates between steps and pins to 1 when stationary`() {
+        val engine = newEngine()
+
+        // A full step just landed: progress restarts at 0 and grows with elapsed time
+        engine.setDirection(Direction.DOWN)
+        engine.step()
+        assertEquals(0.0, engine.moveProgress, 1e-9)
+        engine.tick(0.04)
+        assertEquals(0.5, engine.moveProgress, 1e-6)
+
+        // Stop: once the next scheduled step does not move, progress pins to 1
+        engine.setDirection(Direction.NONE)
+        engine.tick(0.04) // completes the pending interval; the scheduled step is a no-move
+        assertEquals(1.0, engine.moveProgress, 1e-9)
+    }
+
+    @Test
+    fun `path history resets to spawn after a crash`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        engine.step()
+        engine.enemies.add(enemyAt(5.0, 1.0)) // on top of the player
+        engine.step()
+
+        assertEquals(GameStateStatus.CRASH_RESET, engine.status)
+        assertEquals(listOf(Pair(5, 0)), engine.pathHistory.toList())
+    }
+
+    // ---------------------------------------------------------------- capture & crash events
+
+    @Test
+    fun `capture events expose the claimed cells for animations`() {
+        val engine = newEngine()
+        assertEquals(0, engine.captureCount)
+
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        assertEquals(1, engine.captureCount)
+        assertEquals(64, engine.lastCapturedCells.size) // 8 trail + 56 flood-filled
+        assertTrue(engine.lastCapturedCells.contains(Pair(5, 4))) // a trail cell
+        assertTrue(engine.lastCapturedCells.contains(Pair(2, 4))) // a flood-filled cell
+    }
+
+    @Test
+    fun `crash count increments on every crash`() {
+        val engine = newEngine()
+        assertEquals(0, engine.crashCount)
+        engine.enemies.add(enemyAt(5.0, 0.0))
+        engine.tick(0.01)
+        assertEquals(1, engine.crashCount)
+    }
+
+    // ---------------------------------------------------------------- radius-based collision
+
+    @Test
+    fun `enemy overlapping the player from a neighboring cell collides`() {
+        val engine = newEngine()
+        // Enemy center at (6.1, 0.5); player center at (5.5, 0.5): gap 0.6 < 0.4 + 0.4
+        engine.enemies.add(enemyAt(5.6, 0.0))
+        engine.tick(0.01)
+        assertEquals(GameStateStatus.CRASH_RESET, engine.status)
+    }
+
+    @Test
+    fun `enemy in a neighboring cell without circle overlap does not collide`() {
+        val engine = newEngine()
+        // Enemy center at (6.5, 0.5); player center at (5.5, 0.5): gap 1.0 > 0.8
+        engine.enemies.add(enemyAt(6.0, 0.0))
+        engine.tick(0.01)
+        assertEquals(GameStateStatus.RUNNING, engine.status)
+        assertEquals(3, engine.lives)
+    }
+
+    // ---------------------------------------------------------------- crawler wall-following
+
+    @Test
+    fun `crawler hugs the captured border and never enters captured cells`() {
+        val engine = newEngine()
+        // Start against the left wall heading down (wall on its right hand)
+        val crawler = Crawler(id = 50, x = 1.0, y = 5.0, vx = 0.0, vy = 3.0)
+        engine.enemies.add(crawler)
+
+        // Walk it around for a while in small ticks; it should trace the inner ring
+        val visited = mutableSetOf<Pair<Int, Int>>()
+        repeat(2000) {
+            crawler.update(engine.grid, 0.02)
+            val cx = Math.round(crawler.x).toInt()
+            val cy = Math.round(crawler.y).toInt()
+            assertTrue("crawler left the field at ($cx,$cy)", cx in 0..9 && cy in 0..9)
+            assertTrue(
+                "crawler entered captured cell ($cx,$cy)",
+                engine.grid[cx][cy] != GridCellState.CAPTURED
+            )
+            visited.add(Pair(cx, cy))
+        }
+
+        // The inner ring of a 10x10 field has 28 cells; a wall-hugger must cover all of them
+        assertEquals(28, visited.size)
+    }
+
+    @Test
+    fun `crawler movement is deterministic`() {
+        fun runOnce(): List<Pair<Double, Double>> {
+            val engine = newEngine()
+            val crawler = Crawler(id = 50, x = 1.0, y = 5.0, vx = 0.0, vy = 3.0)
+            val positions = mutableListOf<Pair<Double, Double>>()
+            repeat(500) {
+                crawler.update(engine.grid, 0.016)
+                positions.add(Pair(crawler.x, crawler.y))
+            }
+            return positions
+        }
+        assertEquals(runOnce(), runOnce())
+    }
+
     // ---------------------------------------------------------------- enemy spawning
 
     @Test

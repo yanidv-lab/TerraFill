@@ -18,8 +18,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.lerp as lerpOffset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -31,7 +39,10 @@ import com.example.engine.*
 import com.example.ui.GameUiState
 import com.example.ui.theme.*
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * Interactive Playfield Screen for TerraFill.
@@ -267,7 +278,7 @@ fun HUDHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    repeat(5) { i ->
+                    repeat(3) { i ->
                         Icon(
                             imageVector = Icons.Default.Favorite,
                             contentDescription = "Life Icon",
@@ -365,7 +376,35 @@ fun Playfield(
     state: GameUiState,
     onDirectionChanged: (Direction) -> Unit
 ) {
-    BoxWithConstraints(
+    // Independent frame clock. Reading this inside the Canvas makes it redraw every
+    // frame, so effect animations (capture flash, crash shake, enemy pulsing) keep
+    // running even while the simulation itself is not ticking (e.g. crash reset).
+    var frameTimeMillis by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos { frameTimeMillis = it / 1_000_000 }
+        }
+    }
+
+    // Capture flash: triggered whenever the engine reports a completed capture
+    var captureFlashStart by remember { mutableStateOf(-1L) }
+    var captureFlashCells by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    LaunchedEffect(state.captureCount) {
+        if (state.captureCount > 0) {
+            captureFlashCells = state.lastCapturedCells
+            captureFlashStart = frameTimeMillis
+        }
+    }
+
+    // Crash shake + red vignette: triggered whenever the engine reports a crash
+    var crashFlashStart by remember { mutableStateOf(-1L) }
+    LaunchedEffect(state.crashCount) {
+        if (state.crashCount > 0) {
+            crashFlashStart = frameTimeMillis
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .aspectRatio(state.gridWidth.toFloat() / state.gridHeight.toFloat(), matchHeightConstraintsFirst = true)
@@ -390,122 +429,248 @@ fun Playfield(
             }
             .testTag("playfield_canvas")
     ) {
-        val cellSideWidth = maxWidth / state.gridWidth
-        val cellSideHeight = maxHeight / state.gridHeight
-        val cellSide = min(cellSideWidth.value, cellSideHeight.value).dp
+        val now = frameTimeMillis
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cellW = size.width / state.gridWidth
             val cellH = size.height / state.gridHeight
+            val cellMin = min(cellW, cellH)
 
-            // 1. Draw subtle background lines
-            val borderAlpha = 0.06f
-            for (x in 1 until state.gridWidth) {
-                drawLine(
-                    color = Color.White,
-                    start = Offset(x * cellW, 0f),
-                    end = Offset(x * cellW, size.height),
-                    strokeWidth = 0.5f,
-                    alpha = borderAlpha
-                )
-            }
-            for (y in 1 until state.gridHeight) {
-                drawLine(
-                    color = Color.White,
-                    start = Offset(0f, y * cellH),
-                    end = Offset(size.width, y * cellH),
-                    strokeWidth = 0.5f,
-                    alpha = borderAlpha
-                )
+            fun cellCenter(cell: Pair<Int, Int>) =
+                Offset((cell.first + 0.5f) * cellW, (cell.second + 0.5f) * cellH)
+
+            fun isOpenCell(x: Int, y: Int): Boolean =
+                x in 0 until state.gridWidth &&
+                    y in 0 until state.gridHeight &&
+                    state.grid[x][y] != GridCellState.CAPTURED
+
+            // Interpolated head position: glides smoothly between grid cells
+            val hist = state.pathHistory
+            val headCenter: Offset? = when {
+                hist.size >= 2 -> lerpOffset(cellCenter(hist[1]), cellCenter(hist[0]), state.moveProgress)
+                hist.size == 1 -> cellCenter(hist[0])
+                else -> null
             }
 
-            // 2. Render all Grid cells
-            if (state.grid.isNotEmpty()) {
-                for (x in 0 until state.gridWidth) {
-                    for (y in 0 until state.gridHeight) {
-                        val cellState = state.grid[x][y]
-                        if (cellState == GridCellState.CAPTURED) {
-                            // Captured territory (Neon Cyan with 20% alpha)
+            // Crash shake: a short decaying jolt of the whole playfield
+            val crashAge = now - crashFlashStart
+            val crashActive = crashFlashStart >= 0 && crashAge < 500
+            var shakeX = 0f
+            var shakeY = 0f
+            if (crashActive) {
+                val falloff = 1f - crashAge / 500f
+                val amp = cellMin * 0.4f * falloff
+                shakeX = (sin(now / 11.0) * amp).toFloat()
+                shakeY = (cos(now / 13.0) * amp).toFloat()
+            }
+
+            translate(left = shakeX, top = shakeY) {
+                // ---------- 1. Subtle background grid ----------
+                for (x in 1 until state.gridWidth) {
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(x * cellW, 0f),
+                        end = Offset(x * cellW, size.height),
+                        strokeWidth = 0.5f,
+                        alpha = 0.05f
+                    )
+                }
+                for (y in 1 until state.gridHeight) {
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(0f, y * cellH),
+                        end = Offset(size.width, y * cellH),
+                        strokeWidth = 0.5f,
+                        alpha = 0.05f
+                    )
+                }
+
+                if (state.grid.isNotEmpty()) {
+                    // ---------- 2. Captured territory with a glowing coastline ----------
+                    for (x in 0 until state.gridWidth) {
+                        for (y in 0 until state.gridHeight) {
+                            if (state.grid[x][y] != GridCellState.CAPTURED) continue
                             drawRect(
                                 color = NeonCyan,
                                 topLeft = Offset(x * cellW, y * cellH),
-                                size = Size(cellW + 0.5f, cellH + 0.5f), // small overlap to prevent pixel gaps
-                                alpha = 0.2f
-                            )
-                            // Draw nice outline borders on captured squares
-                            drawRect(
-                                color = NeonCyan,
-                                topLeft = Offset(x * cellW, y * cellH),
-                                size = Size(cellW, cellH),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.5f),
-                                alpha = 0.4f
-                            )
-                        } else if (cellState == GridCellState.TRAIL) {
-                            // Unfinished trail (Neon Magenta)
-                            drawRect(
-                                color = NeonMagenta,
-                                topLeft = Offset(x * cellW, y * cellH),
-                                size = Size(cellW, cellH)
+                                size = Size(cellW + 0.5f, cellH + 0.5f), // overlap avoids pixel seams
+                                alpha = 0.15f
                             )
                         }
                     }
+
+                    // Bright edge only where captured land meets open territory: the coastline
+                    val edgeWidth = (cellMin * 0.1f).coerceAtLeast(1.5f)
+                    for (x in 0 until state.gridWidth) {
+                        for (y in 0 until state.gridHeight) {
+                            if (state.grid[x][y] != GridCellState.CAPTURED) continue
+                            val left = x * cellW
+                            val top = y * cellH
+                            val right = (x + 1) * cellW
+                            val bottom = (y + 1) * cellH
+                            if (isOpenCell(x - 1, y)) {
+                                drawLine(NeonCyan, Offset(left, top), Offset(left, bottom), edgeWidth, alpha = 0.85f)
+                            }
+                            if (isOpenCell(x + 1, y)) {
+                                drawLine(NeonCyan, Offset(right, top), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                            }
+                            if (isOpenCell(x, y - 1)) {
+                                drawLine(NeonCyan, Offset(left, top), Offset(right, top), edgeWidth, alpha = 0.85f)
+                            }
+                            if (isOpenCell(x, y + 1)) {
+                                drawLine(NeonCyan, Offset(left, bottom), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                            }
+                        }
+                    }
+                }
+
+                // ---------- 3. Capture flash: newly claimed land lights up and fades ----------
+                val flashAge = now - captureFlashStart
+                if (captureFlashStart >= 0 && flashAge < 700) {
+                    val fade = 1f - flashAge / 700f
+                    for (cell in captureFlashCells) {
+                        drawRect(
+                            color = Color.White,
+                            topLeft = Offset(cell.first * cellW, cell.second * cellH),
+                            size = Size(cellW + 0.5f, cellH + 0.5f),
+                            alpha = 0.5f * fade
+                        )
+                    }
+                }
+
+                // ---------- 4. The trail as a glowing neon line ----------
+                if (state.trail.isNotEmpty()) {
+                    val trailPath = Path()
+                    val start = cellCenter(state.trail.first())
+                    trailPath.moveTo(start.x, start.y)
+                    for (i in 1 until state.trail.size) {
+                        val p = cellCenter(state.trail[i])
+                        trailPath.lineTo(p.x, p.y)
+                    }
+                    if (state.isDrawing && headCenter != null) {
+                        trailPath.lineTo(headCenter.x, headCenter.y)
+                    }
+                    val stroke = { width: Float ->
+                        Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    }
+                    drawPath(trailPath, NeonMagenta, alpha = 0.25f, style = stroke(cellMin * 0.9f))
+                    drawPath(trailPath, NeonMagenta, alpha = 0.9f, style = stroke(cellMin * 0.45f))
+                    drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
+                }
+
+                // ---------- 5. Enemies ----------
+                for (enemy in state.enemies) {
+                    val ecx = ((enemy.x + 0.5) * cellW).toFloat()
+                    val ecy = ((enemy.y + 0.5) * cellH).toFloat()
+                    val center = Offset(ecx, ecy)
+                    val pulse = 1f + 0.1f * sin(now / 160.0 + enemy.id).toFloat()
+                    val r = enemy.radius.toFloat() * cellMin * pulse
+
+                    if (enemy.type == "Bouncer") {
+                        // Pulsing magenta orb with a soft glow and an orbiting spark
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(NeonMagenta.copy(alpha = 0.5f), Color.Transparent),
+                                center = center,
+                                radius = r * 2.4f
+                            ),
+                            radius = r * 2.4f,
+                            center = center
+                        )
+                        drawCircle(NeonMagenta, r, center)
+                        drawCircle(Color.White, r * 0.4f, center)
+                        val sparkAngle = now / 300.0 + enemy.id
+                        drawCircle(
+                            color = Color.White,
+                            radius = r * 0.18f,
+                            center = Offset(
+                                ecx + (cos(sparkAngle) * r * 1.5).toFloat(),
+                                ecy + (sin(sparkAngle) * r * 1.5).toFloat()
+                            ),
+                            alpha = 0.9f
+                        )
+                    } else {
+                        // Crawler: glowing yellow diamond oriented along its heading
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(NeonYellow.copy(alpha = 0.45f), Color.Transparent),
+                                center = center,
+                                radius = r * 2.2f
+                            ),
+                            radius = r * 2.2f,
+                            center = center
+                        )
+                        val angleDeg = Math.toDegrees(atan2(enemy.vy, enemy.vx)).toFloat() + 45f
+                        rotate(degrees = angleDeg, pivot = center) {
+                            drawRect(
+                                color = NeonYellow,
+                                topLeft = Offset(ecx - r * 0.8f, ecy - r * 0.8f),
+                                size = Size(r * 1.6f, r * 1.6f)
+                            )
+                        }
+                        drawCircle(ArcadeBgDark, r * 0.35f, center)
+                    }
+                }
+
+                // ---------- 6. The player: a segmented caterpillar ----------
+                if (headCenter != null) {
+                    // Body segments follow the head along its recent path (tail drawn first)
+                    val segmentCount = 6
+                    for (k in segmentCount downTo 1) {
+                        if (hist.size <= k) continue
+                        val from = hist.getOrNull(k + 1) ?: hist.last()
+                        val to = hist[k]
+                        val segCenter = lerpOffset(cellCenter(from), cellCenter(to), state.moveProgress)
+                        val towardTail = k.toFloat() / (segmentCount + 1)
+                        val wave = 1f + 0.08f * sin(now / 140.0 - k * 0.9).toFloat()
+                        val segRadius = cellMin * (0.34f - 0.15f * towardTail) * wave
+                        val segColor = lerpColor(NeonGreen, NeonCyan, towardTail)
+
+                        drawCircle(segColor, segRadius * 1.6f, segCenter, alpha = 0.18f) // glow
+                        drawCircle(segColor, segRadius, segCenter)
+                        drawCircle(Color.White, segRadius * 0.35f, segCenter, alpha = 0.45f) // sheen
+                    }
+
+                    // Head: bright with a cyan ring and eyes looking where it's going
+                    val headR = cellMin * 0.42f
+                    drawCircle(Color.White, headR * 1.9f, headCenter, alpha = 0.15f) // glow
+                    drawCircle(Color.White, headR, headCenter)
+                    drawCircle(NeonCyan, headR, headCenter, style = Stroke(width = cellMin * 0.06f), alpha = 0.9f)
+
+                    val facing = when (state.playerDirection) {
+                        Direction.UP -> Offset(0f, -1f)
+                        Direction.DOWN -> Offset(0f, 1f)
+                        Direction.LEFT -> Offset(-1f, 0f)
+                        Direction.RIGHT -> Offset(1f, 0f)
+                        Direction.NONE -> if (hist.size >= 2) {
+                            Offset(
+                                (hist[0].first - hist[1].first).toFloat(),
+                                (hist[0].second - hist[1].second).toFloat()
+                            )
+                        } else {
+                            Offset(0f, 1f)
+                        }
+                    }
+                    val side = Offset(-facing.y, facing.x)
+                    val eyeBase = headCenter + facing * (headR * 0.35f)
+                    val eyeSpread = side * (headR * 0.42f)
+                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase + eyeSpread)
+                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase - eyeSpread)
                 }
             }
 
-            // 3. Render Enemies (smooth floating point positions)
-            for (enemy in state.enemies) {
-                val ex = enemy.x.toFloat() * cellW
-                val ey = enemy.y.toFloat() * cellH
-                val r = enemy.radius.toFloat() * min(cellW, cellH)
-
-                if (enemy.type == "Bouncer") {
-                    // Bouncer (Neon Magenta with inner core)
-                    drawCircle(
-                        color = NeonMagenta,
-                        radius = r,
-                        center = Offset(ex + cellW / 2, ey + cellH / 2)
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = r * 0.35f,
-                        center = Offset(ex + cellW / 2, ey + cellH / 2)
-                    )
-                } else {
-                    // Crawler (Neon Yellow perimeter hugger)
-                    drawCircle(
-                        color = NeonYellow,
-                        radius = r,
-                        center = Offset(ex + cellW / 2, ey + cellH / 2)
-                    )
-                    drawCircle(
-                        color = NeonCyan, // Neon Cyan core
-                        radius = r * 0.3f,
-                        center = Offset(ex + cellW / 2, ey + cellH / 2)
-                    )
-                }
+            // ---------- 7. Crash vignette (drawn unshaken, on top) ----------
+            if (crashActive) {
+                val fade = 1f - crashAge / 500f
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.Transparent, Color.Red.copy(alpha = 0.4f * fade)),
+                        center = Offset(size.width / 2f, size.height / 2f),
+                        radius = size.width.coerceAtLeast(size.height) * 0.75f
+                    ),
+                    size = size
+                )
             }
-
-            // 4. Render Player Cursor (Sleek White rounded square with subtle glow)
-            val px = state.playerX * cellW
-            val py = state.playerY * cellH
-            val pSize = 0.8f * min(cellW, cellH)
-            val paddingX = (cellW - pSize) / 2
-            val paddingY = (cellH - pSize) / 2
-
-            // Draw glowing background under cursor
-            drawRect(
-                color = Color.White,
-                topLeft = Offset(px + paddingX - 2f, py + paddingY - 2f),
-                size = Size(pSize + 4f, pSize + 4f),
-                alpha = 0.25f
-            )
-
-            // Draw clean main player block
-            drawRect(
-                color = Color.White,
-                topLeft = Offset(px + paddingX, py + paddingY),
-                size = Size(pSize, pSize)
-            )
         }
 
         // Floating HUD Overlay showing real-time statistics

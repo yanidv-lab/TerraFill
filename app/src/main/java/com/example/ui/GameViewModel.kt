@@ -30,6 +30,15 @@ data class GameUiState(
     val playerDirection: Direction = Direction.NONE,
     val isDrawing: Boolean = false,
     val trail: List<Pair<Int, Int>> = emptyList(),
+    /** Recent head cells, most recent first; drives the caterpillar body rendering. */
+    val pathHistory: List<Pair<Int, Int>> = emptyList(),
+    /** 0..1 interpolation of the head's glide between its previous and current cell. */
+    val moveProgress: Float = 1f,
+    /** Monotonic capture event counter; a change triggers the capture flash animation. */
+    val captureCount: Int = 0,
+    val lastCapturedCells: List<Pair<Int, Int>> = emptyList(),
+    /** Monotonic crash event counter; a change triggers the shake/vignette animation. */
+    val crashCount: Int = 0,
     val enemies: List<Enemy> = emptyList(),
     val lives: Int = 3,
     val score: Int = 0,
@@ -159,6 +168,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             playerDirection = activeEngine.playerDirection,
             isDrawing = activeEngine.isDrawing,
             trail = activeEngine.trail.toList(),
+            pathHistory = activeEngine.pathHistory.toList(),
+            moveProgress = activeEngine.moveProgress.toFloat(),
+            captureCount = activeEngine.captureCount,
+            lastCapturedCells = activeEngine.lastCapturedCells,
+            crashCount = activeEngine.crashCount,
             enemies = enemiesCopy,
             lives = activeEngine.lives,
             score = activeEngine.score,
