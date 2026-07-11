@@ -1,0 +1,6 @@
+{
+  "name": "TerraFill",
+  "description": "A retro-arcade Xonix/Qix-style territory-capture game.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

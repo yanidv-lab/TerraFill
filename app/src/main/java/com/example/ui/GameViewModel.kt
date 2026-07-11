@@ -1,0 +1,213 @@
+package com.example.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.GamePreferences
+import com.example.engine.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+/**
+ * UI State container representing the real-time game simulation parameters for Jetpack Compose.
+ */
+data class GameUiState(
+    val levelNumber: Int = 1,
+    val grid: Array<Array<GridCellState>> = Array(0) { emptyArray() },
+    val gridWidth: Int = 40,
+    val gridHeight: Int = 50,
+    val playerX: Int = 20,
+    val playerY: Int = 0,
+    val playerDirection: Direction = Direction.NONE,
+    val isDrawing: Boolean = false,
+    val trail: List<Pair<Int, Int>> = emptyList(),
+    val enemies: List<Enemy> = emptyList(),
+    val lives: Int = 3,
+    val score: Int = 0,
+    val timeRemainingSeconds: Double = 180.0,
+    val capturedPercentage: Double = 0.0,
+    val status: GameStateStatus = GameStateStatus.RUNNING,
+    val targetPercentage: Double = 75.0,
+    val highestUnlockedLevel: Int = 1
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as GameUiState
+
+        if (levelNumber != other.levelNumber) return false
+        if (gridWidth != other.gridWidth) return false
+        if (gridHeight != other.gridHeight) return false
+        if (playerX != other.playerX) return false
+        if (playerY != other.playerY) return false
+        if (playerDirection != other.playerDirection) return false
+        if (isDrawing != other.isDrawing) return false
+        if (trail != other.trail) return false
+        // Shallow comparison for active game render lists
+        if (enemies.size != other.enemies.size) return false
+        if (lives != other.lives) return false
+        if (score != other.score) return false
+        if (timeRemainingSeconds.toInt() != other.timeRemainingSeconds.toInt()) return false
+        if (capturedPercentage != other.capturedPercentage) return false
+        if (status != other.status) return false
+        if (targetPercentage != other.targetPercentage) return false
+        if (highestUnlockedLevel != other.highestUnlockedLevel) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = levelNumber
+        result = 31 * result + gridWidth
+        result = 31 * result + gridHeight
+        result = 31 * result + playerX
+        result = 31 * result + playerY
+        result = 31 * result + playerDirection.hashCode()
+        result = 31 * result + isDrawing.hashCode()
+        result = 31 * result + trail.hashCode()
+        result = 31 * result + enemies.hashCode()
+        result = 31 * result + lives
+        result = 31 * result + score
+        result = 31 * result + timeRemainingSeconds.toInt()
+        result = 31 * result + capturedPercentage.hashCode()
+        result = 31 * result + status.hashCode()
+        result = 31 * result + targetPercentage.hashCode()
+        result = 31 * result + highestUnlockedLevel
+        return result
+    }
+}
+
+/**
+ * ViewModel coordinating UI flow and active GameEngine simulation.
+ */
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val preferences = GamePreferences(application)
+    
+    // Mutable state for the currently active game
+    private val _uiState = MutableStateFlow(GameUiState())
+    val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+
+    // Observe progress
+    val highestUnlockedLevel: StateFlow<Int> = preferences.highestUnlockedLevel
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
+
+    private var engine: GameEngine? = null
+
+    init {
+        // Observe unlocked level to update UI state accordingly
+        viewModelScope.launch {
+            highestUnlockedLevel.collect { level ->
+                _uiState.value = _uiState.value.copy(highestUnlockedLevel = level)
+            }
+        }
+    }
+
+    /**
+     * Initializes and starts a new game session for the specified level.
+     */
+    fun startLevel(levelNumber: Int) {
+        val config = LevelConfig.getConfig(levelNumber)
+        val newEngine = GameEngine(config)
+        engine = newEngine
+        updateUiStateFromEngine(newEngine)
+    }
+
+    /**
+     * Propagates a simulation frame tick.
+     */
+    fun tick(dt: Double) {
+        val activeEngine = engine ?: return
+        
+        // Tick game simulation
+        activeEngine.tick(dt)
+
+        // Handle short flash/reset sequence if player is in reset mode
+        if (activeEngine.status == GameStateStatus.CRASH_RESET) {
+            viewModelScope.launch {
+                // Briefly pause for impact animation and then resume
+                kotlinx.coroutines.delay(1000)
+                activeEngine.clearReset()
+                updateUiStateFromEngine(activeEngine)
+            }
+        }
+
+        // Handle auto-saving on level completion
+        if (activeEngine.status == GameStateStatus.LEVEL_COMPLETE && _uiState.value.status == GameStateStatus.RUNNING) {
+            viewModelScope.launch {
+                preferences.saveLevelCompletion(
+                    level = activeEngine.levelConfig.levelNumber,
+                    percentage = activeEngine.capturedPercentage,
+                    timeRemaining = activeEngine.timeRemainingSeconds.toInt()
+                )
+            }
+        }
+
+        updateUiStateFromEngine(activeEngine)
+    }
+
+    /**
+     * Changes movement direction of the cursor.
+     */
+    fun setDirection(direction: Direction) {
+        engine?.setDirection(direction)
+        engine?.let { updateUiStateFromEngine(it) }
+    }
+
+    /**
+     * Toggles the active pause state of the game loop.
+     */
+    fun togglePause() {
+        engine?.togglePause()
+        engine?.let { updateUiStateFromEngine(it) }
+    }
+
+    /**
+     * Erases all persisted progress, resetting unlocked levels back to level 1.
+     */
+    fun resetAllProgress() {
+        viewModelScope.launch {
+            preferences.resetProgress()
+            _uiState.value = _uiState.value.copy(highestUnlockedLevel = 1)
+        }
+    }
+
+    /**
+     * Copies parameters of the simulation engine to state flow.
+     */
+    private fun updateUiStateFromEngine(activeEngine: GameEngine) {
+        // Deep copy the grid state for reliable recomposition triggering
+        val gridCopy = Array(activeEngine.width) { x ->
+            Array(activeEngine.height) { y ->
+                activeEngine.grid[x][y]
+            }
+        }
+
+        // Map enemies list (creates a new list so recomposition detects changes)
+        val enemiesCopy = activeEngine.enemies.map { it.copyWith() }
+
+        _uiState.value = _uiState.value.copy(
+            levelNumber = activeEngine.levelConfig.levelNumber,
+            grid = gridCopy,
+            gridWidth = activeEngine.width,
+            gridHeight = activeEngine.height,
+            playerX = activeEngine.playerX,
+            playerY = activeEngine.playerY,
+            playerDirection = activeEngine.playerDirection,
+            isDrawing = activeEngine.isDrawing,
+            trail = activeEngine.trail.toList(),
+            enemies = enemiesCopy,
+            lives = activeEngine.lives,
+            score = activeEngine.score,
+            timeRemainingSeconds = activeEngine.timeRemainingSeconds,
+            capturedPercentage = activeEngine.capturedPercentage,
+            status = activeEngine.status,
+            targetPercentage = activeEngine.levelConfig.targetPercentage
+        )
+    }
+}
