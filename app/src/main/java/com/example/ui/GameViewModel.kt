@@ -14,6 +14,11 @@ import kotlinx.coroutines.launch
 
 /**
  * UI State container representing the real-time game simulation parameters for Jetpack Compose.
+ *
+ * Note: equality is intentionally the data-class default. `grid` (an Array) and `enemies`
+ * (identity-based Enemy instances) are freshly copied on every engine tick, so consecutive
+ * states never compare equal and StateFlow emits every frame — enemies must keep animating
+ * even while all scalar fields (player position, score, timer) are unchanged.
  */
 data class GameUiState(
     val levelNumber: Int = 1,
@@ -33,54 +38,7 @@ data class GameUiState(
     val status: GameStateStatus = GameStateStatus.RUNNING,
     val targetPercentage: Double = 75.0,
     val highestUnlockedLevel: Int = 1
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as GameUiState
-
-        if (levelNumber != other.levelNumber) return false
-        if (gridWidth != other.gridWidth) return false
-        if (gridHeight != other.gridHeight) return false
-        if (playerX != other.playerX) return false
-        if (playerY != other.playerY) return false
-        if (playerDirection != other.playerDirection) return false
-        if (isDrawing != other.isDrawing) return false
-        if (trail != other.trail) return false
-        // Shallow comparison for active game render lists
-        if (enemies.size != other.enemies.size) return false
-        if (lives != other.lives) return false
-        if (score != other.score) return false
-        if (timeRemainingSeconds.toInt() != other.timeRemainingSeconds.toInt()) return false
-        if (capturedPercentage != other.capturedPercentage) return false
-        if (status != other.status) return false
-        if (targetPercentage != other.targetPercentage) return false
-        if (highestUnlockedLevel != other.highestUnlockedLevel) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = levelNumber
-        result = 31 * result + gridWidth
-        result = 31 * result + gridHeight
-        result = 31 * result + playerX
-        result = 31 * result + playerY
-        result = 31 * result + playerDirection.hashCode()
-        result = 31 * result + isDrawing.hashCode()
-        result = 31 * result + trail.hashCode()
-        result = 31 * result + enemies.hashCode()
-        result = 31 * result + lives
-        result = 31 * result + score
-        result = 31 * result + timeRemainingSeconds.toInt()
-        result = 31 * result + capturedPercentage.hashCode()
-        result = 31 * result + status.hashCode()
-        result = 31 * result + targetPercentage.hashCode()
-        result = 31 * result + highestUnlockedLevel
-        return result
-    }
-}
+)
 
 /**
  * ViewModel coordinating UI flow and active GameEngine simulation.

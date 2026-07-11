@@ -22,6 +22,10 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "My Application"
+rootProject.name = "TerraFill"
 
 include(":app")
+
+// The game engine is a standalone pure-Kotlin build (see engine/settings.gradle.kts).
+// Keeping it separate from the Android build lets us run its unit tests with just a JDK.
+includeBuild("engine")
