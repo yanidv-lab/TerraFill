@@ -1,21 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# TerraFill
 
-# Run and deploy your AI Studio app
+A retro-arcade **Xonix/Qix-style territory-capture game** for Android, built with Kotlin and Jetpack Compose.
 
-This contains everything you need to run your app locally.
+Steer your cursor off the safe border to draw a trail through open territory. Reconnect to captured ground to claim the enclosed area — but any region containing an enemy stays wild. Capture the target percentage of the field to clear the level, and don't let enemies touch you or your unfinished trail.
 
-View your app in AI Studio: https://ai.studio/apps/c78f2ac7-0b6a-471b-9fdd-1d62059436c2
+## Project layout
 
-## Run Locally
+| Path | What it is |
+|---|---|
+| `engine/` | The game simulation (grid, player, trail, flood fill, enemies, scoring). **Pure Kotlin, no Android dependencies** — built as a standalone Gradle build included into the app via composite build. |
+| `app/` | The Android app: Compose UI, screens, navigation, ViewModel, DataStore persistence. |
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+## Running the app
 
+**Prerequisites:** [Android Studio](https://developer.android.com/studio) (with JDK 17+; the project targets Gradle 9.3.1 / AGP 9.1.1).
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
+1. Open Android Studio, choose **Open**, and select this project directory.
+2. Let Gradle sync finish.
+3. Run on an emulator or device (**Run ▶**).
+
+## Testing the engine without Android
+
+The engine builds and tests with nothing but a JDK — no Android SDK needed:
+
+```bash
+cd engine
+../gradlew test        # or plain `gradle test`
+```
+
+Engine tests live in `engine/src/test/kotlin/` and cover movement, trail drawing, region capture, flood fill, collisions, lives, and level completion.
+
+## App-side tests
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+Includes Robolectric/Compose UI tests and a Roborazzi screenshot test.
