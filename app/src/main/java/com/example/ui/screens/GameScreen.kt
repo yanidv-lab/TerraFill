@@ -25,9 +25,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -558,85 +556,33 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
-                // ---------- 5. Enemies ----------
+                // ---------- 5. Enemies (hand-drawn characters, see GameSprites.kt) ----------
                 for (enemy in state.enemies) {
-                    val ecx = ((enemy.x + 0.5) * cellW).toFloat()
-                    val ecy = ((enemy.y + 0.5) * cellH).toFloat()
-                    val center = Offset(ecx, ecy)
-                    val pulse = 1f + 0.1f * sin(now / 160.0 + enemy.id).toFloat()
-                    val r = enemy.radius.toFloat() * cellMin * pulse
-
+                    val center = Offset(
+                        ((enemy.x + 0.5) * cellW).toFloat(),
+                        ((enemy.y + 0.5) * cellH).toFloat()
+                    )
                     if (enemy.type == "Bouncer") {
-                        // Pulsing magenta orb with a soft glow and an orbiting spark
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(NeonMagenta.copy(alpha = 0.5f), Color.Transparent),
-                                center = center,
-                                radius = r * 2.4f
-                            ),
-                            radius = r * 2.4f,
-                            center = center
-                        )
-                        drawCircle(NeonMagenta, r, center)
-                        drawCircle(Color.White, r * 0.4f, center)
-                        val sparkAngle = now / 300.0 + enemy.id
-                        drawCircle(
-                            color = Color.White,
-                            radius = r * 0.18f,
-                            center = Offset(
-                                ecx + (cos(sparkAngle) * r * 1.5).toFloat(),
-                                ecy + (sin(sparkAngle) * r * 1.5).toFloat()
-                            ),
-                            alpha = 0.9f
+                        drawSpikyBouncer(
+                            center = center,
+                            scale = cellMin,
+                            id = enemy.id,
+                            timeMs = now,
+                            lookAt = headCenter
                         )
                     } else {
-                        // Crawler: glowing yellow diamond oriented along its heading
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(NeonYellow.copy(alpha = 0.45f), Color.Transparent),
-                                center = center,
-                                radius = r * 2.2f
-                            ),
-                            radius = r * 2.2f,
-                            center = center
+                        drawCrawlerBeetle(
+                            center = center,
+                            scale = cellMin,
+                            headingRad = atan2(enemy.vy, enemy.vx).toFloat(),
+                            id = enemy.id,
+                            timeMs = now
                         )
-                        val angleDeg = Math.toDegrees(atan2(enemy.vy, enemy.vx)).toFloat() + 45f
-                        rotate(degrees = angleDeg, pivot = center) {
-                            drawRect(
-                                color = NeonYellow,
-                                topLeft = Offset(ecx - r * 0.8f, ecy - r * 0.8f),
-                                size = Size(r * 1.6f, r * 1.6f)
-                            )
-                        }
-                        drawCircle(ArcadeBgDark, r * 0.35f, center)
                     }
                 }
 
-                // ---------- 6. The player: a segmented caterpillar ----------
+                // ---------- 6. The player: a caterpillar with a face, antennae and feet ----------
                 if (headCenter != null) {
-                    // Body segments follow the head along its recent path (tail drawn first)
-                    val segmentCount = 6
-                    for (k in segmentCount downTo 1) {
-                        if (hist.size <= k) continue
-                        val from = hist.getOrNull(k + 1) ?: hist.last()
-                        val to = hist[k]
-                        val segCenter = lerpOffset(cellCenter(from), cellCenter(to), state.moveProgress)
-                        val towardTail = k.toFloat() / (segmentCount + 1)
-                        val wave = 1f + 0.08f * sin(now / 140.0 - k * 0.9).toFloat()
-                        val segRadius = cellMin * (0.34f - 0.15f * towardTail) * wave
-                        val segColor = lerpColor(NeonGreen, NeonCyan, towardTail)
-
-                        drawCircle(segColor, segRadius * 1.6f, segCenter, alpha = 0.18f) // glow
-                        drawCircle(segColor, segRadius, segCenter)
-                        drawCircle(Color.White, segRadius * 0.35f, segCenter, alpha = 0.45f) // sheen
-                    }
-
-                    // Head: bright with a cyan ring and eyes looking where it's going
-                    val headR = cellMin * 0.42f
-                    drawCircle(Color.White, headR * 1.9f, headCenter, alpha = 0.15f) // glow
-                    drawCircle(Color.White, headR, headCenter)
-                    drawCircle(NeonCyan, headR, headCenter, style = Stroke(width = cellMin * 0.06f), alpha = 0.9f)
-
                     val facing = when (state.playerDirection) {
                         Direction.UP -> Offset(0f, -1f)
                         Direction.DOWN -> Offset(0f, 1f)
@@ -651,11 +597,40 @@ fun Playfield(
                             Offset(0f, 1f)
                         }
                     }
-                    val side = Offset(-facing.y, facing.x)
-                    val eyeBase = headCenter + facing * (headR * 0.35f)
-                    val eyeSpread = side * (headR * 0.42f)
-                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase + eyeSpread)
-                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase - eyeSpread)
+                    val facingRad = atan2(facing.y, facing.x)
+
+                    // Soft glow under the whole creature
+                    drawCircle(Color.White, cellMin * 1.0f, headCenter, alpha = 0.12f)
+
+                    // Body segments follow the head along its recent path (tail drawn first,
+                    // so nearer segments overlap farther ones like a real caterpillar)
+                    val segmentCount = 6
+                    for (k in segmentCount downTo 1) {
+                        if (hist.size <= k) continue
+                        val from = hist.getOrNull(k + 1) ?: hist.last()
+                        val to = hist[k]
+                        val segCenter = lerpOffset(cellCenter(from), cellCenter(to), state.moveProgress)
+                        val segDirRad = atan2(
+                            (to.second - from.second).toFloat(),
+                            (to.first - from.first).toFloat()
+                        )
+                        val towardTail = k.toFloat() / (segmentCount + 1)
+                        val segRadius = cellMin * (0.42f - 0.16f * towardTail)
+                        drawCaterpillarSegment(
+                            center = segCenter,
+                            radius = segRadius,
+                            dirRad = segDirRad,
+                            phase = k * 1.9f,
+                            timeMs = now
+                        )
+                    }
+
+                    drawCaterpillarHead(
+                        center = headCenter,
+                        radius = cellMin * 0.52f,
+                        facingRad = facingRad,
+                        timeMs = now
+                    )
                 }
             }
 
