@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,8 +32,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -121,21 +124,28 @@ fun GameScreen(
         }
     }
 
-    val bgGradient = Brush.verticalGradient(
-        colors = listOf(ArcadeBgDark, Color(0xFF120B24), ArcadeBgDark)
-    )
-
     // Layout Root
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(bgGradient)
-            .retroArcadeOverlay(scanlineOpacity = 0.12f)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+        modifier = modifier.fillMaxSize()
     ) {
+        // Jungle backdrop fills the whole screen (behind the status bar too)
+        Image(
+            painter = painterResource(R.drawable.bg_jungle),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        // Dark scrim so the HUD text stays readable and characters pop
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.28f))
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -455,15 +465,17 @@ fun Playfield(
 
     // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and reused.
     val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
-    val spiderSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
+    val spiderRedSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_red)
+    val spiderBlueSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_blue)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .aspectRatio(state.gridWidth.toFloat() / state.gridHeight.toFloat(), matchHeightConstraintsFirst = true)
-            .border(2.dp, NeonPurple, RoundedCornerShape(16.dp))
+            .border(2.dp, JungleBorder, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
-            .background(ArcadeBgDark)
+            // Dark, mostly-opaque panel so the jungle bleeds in only slightly and gameplay stays readable
+            .background(JunglePanel)
             .pointerInput(Unit) {
                 // Swipe gesture detection
                 detectDragGestures(
@@ -539,20 +551,20 @@ fun Playfield(
                 }
 
                 if (state.grid.isNotEmpty()) {
-                    // ---------- 2. Captured territory with a glowing coastline ----------
+                    // ---------- 2. Reclaimed (captured) land with a sunlit coastline ----------
                     for (x in 0 until state.gridWidth) {
                         for (y in 0 until state.gridHeight) {
                             if (state.grid[x][y] != GridCellState.CAPTURED) continue
                             drawRect(
-                                color = NeonCyan,
+                                color = JungleCaptured,
                                 topLeft = Offset(x * cellW, y * cellH),
                                 size = Size(cellW + 0.5f, cellH + 0.5f), // overlap avoids pixel seams
-                                alpha = 0.15f
+                                alpha = 0.42f
                             )
                         }
                     }
 
-                    // Bright edge only where captured land meets open territory: the coastline
+                    // Bright edge only where reclaimed land meets wild territory: the coastline
                     val edgeWidth = (cellMin * 0.1f).coerceAtLeast(1.5f)
                     for (x in 0 until state.gridWidth) {
                         for (y in 0 until state.gridHeight) {
@@ -562,16 +574,16 @@ fun Playfield(
                             val right = (x + 1) * cellW
                             val bottom = (y + 1) * cellH
                             if (isOpenCell(x - 1, y)) {
-                                drawLine(NeonCyan, Offset(left, top), Offset(left, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, top), Offset(left, bottom), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x + 1, y)) {
-                                drawLine(NeonCyan, Offset(right, top), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(right, top), Offset(right, bottom), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x, y - 1)) {
-                                drawLine(NeonCyan, Offset(left, top), Offset(right, top), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, top), Offset(right, top), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x, y + 1)) {
-                                drawLine(NeonCyan, Offset(left, bottom), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, bottom), Offset(right, bottom), edgeWidth, alpha = 0.9f)
                             }
                         }
                     }
@@ -611,17 +623,18 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
-                // ---------- 5. Enemies: the spider sprite (drawn upright, gentle bob) ----------
+                // ---------- 5. Enemies: tarantula sprites (red = bouncer, blue = crawler) ----------
                 for (enemy in state.enemies) {
                     val center = Offset(
                         ((enemy.x + 0.5) * cellW).toFloat(),
                         ((enemy.y + 0.5) * cellH).toFloat()
                     )
+                    val isBouncer = enemy.type == "Bouncer"
                     // A soft menacing glow so enemies pop against the dark field
-                    val glow = if (enemy.type == "Bouncer") NeonMagenta else NeonYellow
+                    val glow = if (isBouncer) NeonMagenta else NeonCyan
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(glow.copy(alpha = 0.35f), Color.Transparent),
+                            colors = listOf(glow.copy(alpha = 0.4f), Color.Transparent),
                             center = center,
                             radius = cellMin * 1.9f
                         ),
@@ -629,12 +642,14 @@ fun Playfield(
                         center = center
                     )
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
+                    // Face travel direction horizontally (art faces right); flip when moving left
+                    val flip = enemy.vx < 0
                     drawSprite(
-                        image = spiderSprite,
+                        image = if (isBouncer) spiderRedSprite else spiderBlueSprite,
                         center = center + Offset(0f, bob),
                         targetLongSide = cellMin * ENEMY_SPRITE_CELLS,
                         rotationDeg = 0f,
-                        flipX = false
+                        flipX = flip
                     )
                 }
 
