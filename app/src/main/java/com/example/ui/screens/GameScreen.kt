@@ -22,25 +22,76 @@ import androidx.compose.ui.geometry.lerp as lerpOffset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
 import com.example.ui.theme.*
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
+private const val PLAYER_SPRITE_CELLS = 2.4f
+
+/** How many grid cells wide the enemy spider sprite is drawn. */
+private const val ENEMY_SPRITE_CELLS = 2.2f
+
+/**
+ * Draws an [image] centered at [center], scaled so its longer side spans [targetLongSide]
+ * pixels (aspect preserved), optionally rotated and/or horizontally mirrored.
+ */
+private fun DrawScope.drawSprite(
+    image: ImageBitmap,
+    center: Offset,
+    targetLongSide: Float,
+    rotationDeg: Float,
+    flipX: Boolean
+) {
+    val aspect = image.width.toFloat() / image.height.toFloat()
+    val dw: Float
+    val dh: Float
+    if (aspect >= 1f) {
+        dw = targetLongSide; dh = targetLongSide / aspect
+    } else {
+        dw = targetLongSide * aspect; dh = targetLongSide
+    }
+    withTransform({
+        rotate(rotationDeg, center)
+        if (flipX) scale(-1f, 1f, center)
+    }) {
+        drawImage(
+            image = image,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(image.width, image.height),
+            dstOffset = IntOffset(
+                (center.x - dw / 2f).roundToInt(),
+                (center.y - dh / 2f).roundToInt()
+            ),
+            dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
+            filterQuality = FilterQuality.High
+        )
+    }
+}
 
 /**
  * Interactive Playfield Screen for TerraFill.
@@ -402,6 +453,10 @@ fun Playfield(
         }
     }
 
+    // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and reused.
+    val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
+    val spiderSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -556,80 +611,65 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
-                // ---------- 5. Enemies (hand-drawn characters, see GameSprites.kt) ----------
+                // ---------- 5. Enemies: the spider sprite (drawn upright, gentle bob) ----------
                 for (enemy in state.enemies) {
                     val center = Offset(
                         ((enemy.x + 0.5) * cellW).toFloat(),
                         ((enemy.y + 0.5) * cellH).toFloat()
                     )
-                    if (enemy.type == "Bouncer") {
-                        drawSpikyBouncer(
+                    // A soft menacing glow so enemies pop against the dark field
+                    val glow = if (enemy.type == "Bouncer") NeonMagenta else NeonYellow
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(glow.copy(alpha = 0.35f), Color.Transparent),
                             center = center,
-                            scale = cellMin,
-                            id = enemy.id,
-                            timeMs = now,
-                            lookAt = headCenter
-                        )
-                    } else {
-                        drawCrawlerBeetle(
-                            center = center,
-                            scale = cellMin,
-                            headingRad = atan2(enemy.vy, enemy.vx).toFloat(),
-                            id = enemy.id,
-                            timeMs = now
-                        )
-                    }
+                            radius = cellMin * 1.9f
+                        ),
+                        radius = cellMin * 1.9f,
+                        center = center
+                    )
+                    val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
+                    drawSprite(
+                        image = spiderSprite,
+                        center = center + Offset(0f, bob),
+                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS,
+                        rotationDeg = 0f,
+                        flipX = false
+                    )
                 }
 
-                // ---------- 6. The player: a caterpillar with a face, antennae and feet ----------
+                // ---------- 6. The player: the caterpillar sprite, facing its direction ----------
                 if (headCenter != null) {
-                    val facing = when (state.playerDirection) {
-                        Direction.UP -> Offset(0f, -1f)
-                        Direction.DOWN -> Offset(0f, 1f)
-                        Direction.LEFT -> Offset(-1f, 0f)
-                        Direction.RIGHT -> Offset(1f, 0f)
-                        Direction.NONE -> if (hist.size >= 2) {
-                            Offset(
-                                (hist[0].first - hist[1].first).toFloat(),
-                                (hist[0].second - hist[1].second).toFloat()
-                            )
-                        } else {
-                            Offset(0f, 1f)
+                    val dir = if (state.playerDirection != Direction.NONE) {
+                        state.playerDirection
+                    } else if (hist.size >= 2) {
+                        // Infer facing from the last step when standing still
+                        when {
+                            hist[0].first < hist[1].first -> Direction.LEFT
+                            hist[0].first > hist[1].first -> Direction.RIGHT
+                            hist[0].second < hist[1].second -> Direction.UP
+                            else -> Direction.DOWN
                         }
-                    }
-                    val facingRad = atan2(facing.y, facing.x)
-
-                    // Soft glow under the whole creature
-                    drawCircle(Color.White, cellMin * 1.0f, headCenter, alpha = 0.12f)
-
-                    // Body segments follow the head along its recent path (tail drawn first,
-                    // so nearer segments overlap farther ones like a real caterpillar)
-                    val segmentCount = 6
-                    for (k in segmentCount downTo 1) {
-                        if (hist.size <= k) continue
-                        val from = hist.getOrNull(k + 1) ?: hist.last()
-                        val to = hist[k]
-                        val segCenter = lerpOffset(cellCenter(from), cellCenter(to), state.moveProgress)
-                        val segDirRad = atan2(
-                            (to.second - from.second).toFloat(),
-                            (to.first - from.first).toFloat()
-                        )
-                        val towardTail = k.toFloat() / (segmentCount + 1)
-                        val segRadius = cellMin * (0.42f - 0.16f * towardTail)
-                        drawCaterpillarSegment(
-                            center = segCenter,
-                            radius = segRadius,
-                            dirRad = segDirRad,
-                            phase = k * 1.9f,
-                            timeMs = now
-                        )
+                    } else {
+                        Direction.LEFT
                     }
 
-                    drawCaterpillarHead(
+                    // The source art faces LEFT. Mirror for RIGHT; rotate for vertical travel.
+                    val (rotationDeg, flipX) = when (dir) {
+                        Direction.LEFT -> 0f to false
+                        Direction.RIGHT -> 0f to true
+                        Direction.UP -> 90f to false
+                        Direction.DOWN -> 270f to false
+                        Direction.NONE -> 0f to false
+                    }
+
+                    drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
+                    drawSprite(
+                        image = caterpillarSprite,
                         center = headCenter,
-                        radius = cellMin * 0.52f,
-                        facingRad = facingRad,
-                        timeMs = now
+                        targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
+                        rotationDeg = rotationDeg,
+                        flipX = flipX
                     )
                 }
             }
