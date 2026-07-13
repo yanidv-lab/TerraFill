@@ -24,6 +24,7 @@ class GamePreferences(private val context: Context) {
         private fun percentageKey(level: Int) = doublePreferencesKey("best_percentage_level_$level")
         private fun timeKey(level: Int) = intPreferencesKey("best_time_level_$level")
         private fun scoreKey(level: Int) = intPreferencesKey("best_score_level_$level")
+        private fun starsKey(level: Int) = intPreferencesKey("best_stars_level_$level")
     }
 
     /**
@@ -55,9 +56,16 @@ class GamePreferences(private val context: Context) {
     }
 
     /**
+     * Retrieves the best star rating (0-3) earned for a specific level.
+     */
+    fun getBestStars(level: Int): Flow<Int> = context.contextDataStore().map { preferences ->
+        preferences[starsKey(level)] ?: 0
+    }
+
+    /**
      * Saves progress of a level completed by the player. Unlocks the next level.
      */
-    suspend fun saveLevelCompletion(level: Int, percentage: Double, timeRemaining: Int, score: Int) {
+    suspend fun saveLevelCompletion(level: Int, percentage: Double, timeRemaining: Int, score: Int, stars: Int) {
         context.dataStore.edit { preferences ->
             // Save level scores if they are better than the previous high
             val currentBestPerc = preferences[percentageKey(level)] ?: 0.0
@@ -73,6 +81,11 @@ class GamePreferences(private val context: Context) {
             val currentBestScore = preferences[scoreKey(level)] ?: 0
             if (score > currentBestScore) {
                 preferences[scoreKey(level)] = score
+            }
+
+            val currentBestStars = preferences[starsKey(level)] ?: 0
+            if (stars > currentBestStars) {
+                preferences[starsKey(level)] = stars
             }
 
             // Unlock next level if relevant

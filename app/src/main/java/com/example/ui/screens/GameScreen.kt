@@ -65,6 +65,67 @@ private const val PLAYER_SPRITE_CELLS = 2.4f
 /** How many grid cells wide the enemy spider sprite is drawn. */
 private const val ENEMY_SPRITE_CELLS = 2.2f
 
+/** A short-lived visual particle. Position/velocity are in grid-cell units. */
+private class GameParticle(
+    var x: Float,
+    var y: Float,
+    var vx: Float,
+    var vy: Float,
+    var life: Float,
+    val maxLife: Float,
+    val color: Color,
+    val size: Float,
+    val gravity: Float
+)
+
+/** Draws a collectible power-up badge (shield / freeze / slow) at [center]. */
+private fun DrawScope.drawPowerUp(center: Offset, cellMin: Float, type: String, now: Long) {
+    val pulse = 0.85f + 0.15f * sin(now / 180.0 + center.x.toDouble()).toFloat()
+    val r = cellMin * 0.7f * pulse
+    val color = when (type) {
+        "SHIELD" -> NeonCyan
+        "FREEZE" -> Color(0xFF9AD8FF)
+        else -> NeonYellow // SLOW
+    }
+    // Glow + badge
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(color.copy(alpha = 0.5f), Color.Transparent),
+            center = center, radius = r * 2.2f
+        ),
+        radius = r * 2.2f, center = center
+    )
+    drawCircle(color.copy(alpha = 0.25f), r, center)
+    drawCircle(color, r, center, style = Stroke(width = cellMin * 0.14f))
+
+    // Simple white glyph per type
+    val g = r * 0.55f
+    when (type) {
+        "SHIELD" -> {
+            // shield outline
+            drawCircle(Color.White, g * 0.75f, center, style = Stroke(width = cellMin * 0.1f))
+        }
+        "FREEZE" -> {
+            // snowflake: three crossed lines
+            for (k in 0 until 3) {
+                val a = (k * Math.PI / 3).toFloat()
+                drawLine(
+                    Color.White,
+                    center + Offset(cos(a) * g, sin(a) * g),
+                    center - Offset(cos(a) * g, sin(a) * g),
+                    strokeWidth = cellMin * 0.09f, cap = StrokeCap.Round
+                )
+            }
+        }
+        else -> {
+            // clock: circle + two hands
+            drawCircle(Color.White, g, center, style = Stroke(width = cellMin * 0.08f))
+            drawLine(Color.White, center, center + Offset(0f, -g * 0.8f), strokeWidth = cellMin * 0.08f, cap = StrokeCap.Round)
+            drawLine(Color.White, center, center + Offset(g * 0.6f, 0f), strokeWidth = cellMin * 0.08f, cap = StrokeCap.Round)
+        }
+    }
+}
+
 /**
  * Draws an [image] centered at [center], scaled so its longer side spans [targetLongSide]
  * pixels (aspect preserved), optionally rotated and/or horizontally mirrored.
@@ -140,10 +201,16 @@ fun GameScreen(
         onDispose { view.keepScreenOn = false }
     }
 
-    // A short buzz on every crash
+    // Haptic feedback: a strong buzz on crash, lighter taps on capture / power-up pickup
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(state.crashCount) {
         if (state.crashCount > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    LaunchedEffect(state.captureCount) {
+        if (state.captureCount > 0) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+    LaunchedEffect(state.powerUpCollectedCount) {
+        if (state.powerUpCollectedCount > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     // Auto-pause the game (and its music) when the app goes to the background
@@ -494,28 +561,74 @@ fun Playfield(
     // Independent frame clock. Reading this inside the Canvas makes it redraw every
     // frame, so effect animations (capture flash, crash shake, enemy pulsing) keep
     // running even while the simulation itself is not ticking (e.g. crash reset).
+    // Live particles (cell-space); advanced every frame by the clock below.
+    val particles = remember { mutableListOf<GameParticle>() }
     var frameTimeMillis by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
+        var lastMs = 0L
         while (true) {
-            withFrameNanos { frameTimeMillis = it / 1_000_000 }
+            withFrameNanos { nanos ->
+                val ms = nanos / 1_000_000
+                val dt = if (lastMs == 0L) 0f else ((ms - lastMs) / 1000f).coerceAtMost(0.05f)
+                lastMs = ms
+                frameTimeMillis = ms
+                val iter = particles.iterator()
+                while (iter.hasNext()) {
+                    val p = iter.next()
+                    p.x += p.vx * dt
+                    p.y += p.vy * dt
+                    p.vy += p.gravity * dt
+                    p.vx *= 0.92f
+                    p.life -= dt
+                    if (p.life <= 0f) iter.remove()
+                }
+            }
         }
     }
 
-    // Capture flash: triggered whenever the engine reports a completed capture
+    // Capture flash + green particle burst on each completed capture
     var captureFlashStart by remember { mutableStateOf(-1L) }
     var captureFlashCells by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
     LaunchedEffect(state.captureCount) {
         if (state.captureCount > 0) {
             captureFlashCells = state.lastCapturedCells
             captureFlashStart = frameTimeMillis
+            val cells = state.lastCapturedCells
+            val sample = if (cells.size > 24) cells.shuffled().take(24) else cells
+            for (c in sample) {
+                repeat(2) {
+                    val ang = Math.random() * 2 * Math.PI
+                    val spd = 2f + Math.random().toFloat() * 4f
+                    particles.add(
+                        GameParticle(
+                            x = c.first + 0.5f, y = c.second + 0.5f,
+                            vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd).toFloat(),
+                            life = 0.5f + Math.random().toFloat() * 0.4f, maxLife = 0.9f,
+                            color = NeonGreen, size = 0.12f + Math.random().toFloat() * 0.14f, gravity = 5f
+                        )
+                    )
+                }
+            }
         }
     }
 
-    // Crash shake + red vignette: triggered whenever the engine reports a crash
+    // Crash shake + red vignette + red splash particles
     var crashFlashStart by remember { mutableStateOf(-1L) }
     LaunchedEffect(state.crashCount) {
         if (state.crashCount > 0) {
             crashFlashStart = frameTimeMillis
+            repeat(28) {
+                val ang = Math.random() * 2 * Math.PI
+                val spd = 3f + Math.random().toFloat() * 6f
+                particles.add(
+                    GameParticle(
+                        x = state.playerX + 0.5f, y = state.playerY + 0.5f,
+                        vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd).toFloat(),
+                        life = 0.4f + Math.random().toFloat() * 0.4f, maxLife = 0.8f,
+                        color = Color(0xFFFF4466), size = 0.14f + Math.random().toFloat() * 0.16f, gravity = 7f
+                    )
+                )
+            }
         }
     }
 
@@ -680,6 +793,16 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
+                // ---------- 4b. Power-ups on the field ----------
+                for (pu in state.powerUps) {
+                    drawPowerUp(
+                        center = Offset((pu.x + 0.5f) * cellW, (pu.y + 0.5f) * cellH),
+                        cellMin = cellMin,
+                        type = pu.type.name,
+                        now = now
+                    )
+                }
+
                 // ---------- 5. Enemies: distinct spider per type ----------
                 // red = bouncer, blue = crawler, green = jumper, crimson-tinted = hunter
                 for (enemy in state.enemies) {
@@ -770,6 +893,17 @@ fun Playfield(
                         targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
                         rotationDeg = rotationDeg,
                         flipX = flipX
+                    )
+                }
+
+                // ---------- 6b. Particles (capture bursts, crash splashes) ----------
+                for (p in particles) {
+                    val alpha = (p.life / p.maxLife).coerceIn(0f, 1f)
+                    drawCircle(
+                        color = p.color,
+                        radius = p.size * cellMin,
+                        center = Offset(p.x * cellW, p.y * cellH),
+                        alpha = alpha
                     )
                 }
             }
@@ -877,7 +1011,44 @@ fun Playfield(
                 )
             }
         }
+
+        // Combo multiplier + active power-up effects (top-left of the playfield)
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (state.scoreMultiplier > 1) {
+                Text(
+                    text = "COMBO x${state.scoreMultiplier}",
+                    color = NeonYellow,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            if (state.shieldActive) EffectChip("SHIELD", NeonCyan)
+            if (state.freezeRemaining > 0) EffectChip("FREEZE ${state.freezeRemaining.toInt() + 1}s", Color(0xFF9AD8FF))
+            if (state.slowRemaining > 0) EffectChip("SLOW ${state.slowRemaining.toInt() + 1}s", NeonYellow)
+        }
     }
+}
+
+/** A small labelled status chip for an active power-up effect. */
+@Composable
+private fun EffectChip(label: String, color: Color) {
+    Text(
+        text = label,
+        color = Color.Black,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(color)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
 }
 
 /**

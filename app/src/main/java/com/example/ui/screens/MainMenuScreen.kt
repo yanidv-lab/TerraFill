@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,7 @@ import com.example.ui.theme.*
 fun MainMenuScreen(
     highestUnlockedLevel: Int,
     highScores: Map<Int, Int>,
+    levelStars: Map<Int, Int> = emptyMap(),
     onStartGame: (Int) -> Unit,
     onResetProgress: () -> Unit,
     modifier: Modifier = Modifier
@@ -78,6 +80,7 @@ fun MainMenuScreen(
                     TitleHeader()
                     PlayCard(
                         highestUnlockedLevel = highestUnlockedLevel,
+                        levelStars = levelStars,
                         onStartGame = onStartGame
                     )
                 }
@@ -105,9 +108,10 @@ fun MainMenuScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 TitleHeader()
-                
+
                 PlayCard(
                     highestUnlockedLevel = highestUnlockedLevel,
+                    levelStars = levelStars,
                     onStartGame = onStartGame
                 )
 
@@ -192,6 +196,7 @@ private fun TitleHeader() {
 @Composable
 private fun PlayCard(
     highestUnlockedLevel: Int,
+    levelStars: Map<Int, Int> = emptyMap(),
     onStartGame: (Int) -> Unit
 ) {
     Card(
@@ -282,6 +287,7 @@ private fun PlayCard(
                                     level = level,
                                     isUnlocked = level <= highestUnlockedLevel,
                                     isCurrent = level == highestUnlockedLevel,
+                                    stars = levelStars[level] ?: 0,
                                     onClick = { onStartGame(level) }
                                 )
                             } else {
@@ -301,6 +307,7 @@ private fun LevelBadge(
     level: Int,
     isUnlocked: Boolean,
     isCurrent: Boolean,
+    stars: Int = 0,
     onClick: () -> Unit
 ) {
     val borderColor = when {
@@ -322,13 +329,26 @@ private fun LevelBadge(
         contentAlignment = Alignment.Center
     ) {
         if (isUnlocked) {
-            Text(
-                text = "$level",
-                color = if (isCurrent) NeonCyan else NeonGreen,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "$level",
+                    color = if (isCurrent) NeonCyan else NeonGreen,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                // Earned stars (up to 3) shown beneath the number
+                Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                    repeat(3) { i ->
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = if (i < stars) NeonYellow else Color.White.copy(alpha = 0.15f),
+                            modifier = Modifier.size(8.dp)
+                        )
+                    }
+                }
+            }
         } else {
             Icon(
                 imageVector = Icons.Default.Lock,

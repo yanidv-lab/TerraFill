@@ -538,6 +538,104 @@ class GameEngineTest {
         assertEquals(run(), run())
     }
 
+    // ---------------------------------------------------------------- power-ups
+
+    /** Small helper: an engine with one stationary enemy so captures stay partial. */
+    private fun engineWithEnemy(target: Double = 99.0) = newEngine(targetPercentage = target).also {
+        it.enemies.add(enemyAt(5.0, 5.0))
+    }
+
+    @Test
+    fun `collecting a shield arms it and absorbs the next crash without losing a life`() {
+        val engine = newEngine()
+        engine.powerUps.add(PowerUp(1, PowerUpType.SHIELD, x = 5, y = 1))
+
+        engine.setDirection(Direction.DOWN)
+        engine.step() // move onto (5,1) -> collect shield
+        assertTrue(engine.shieldActive)
+        assertTrue(engine.powerUps.isEmpty())
+        assertEquals(1, engine.powerUpCollectedCount)
+
+        // Now crash into an enemy: shield should absorb it
+        engine.enemies.add(enemyAt(5.0, 1.0))
+        engine.tick(0.01)
+        assertEquals(3, engine.lives)          // life preserved
+        assertFalse(engine.shieldActive)       // shield consumed
+        assertEquals(GameStateStatus.CRASH_RESET, engine.status)
+    }
+
+    @Test
+    fun `freeze power-up stops enemies from moving`() {
+        val engine = newEngine()
+        engine.powerUps.add(PowerUp(1, PowerUpType.FREEZE, x = 5, y = 1))
+        engine.setDirection(Direction.DOWN)
+        engine.step() // collect freeze
+        assertTrue(engine.freezeRemaining > 0.0)
+
+        val enemy = Bouncer(id = 3, x = 3.0, y = 3.0, vx = 6.0, vy = 0.0)
+        engine.enemies.add(enemy)
+        engine.tick(0.1)
+        assertEquals(3.0, enemy.x, 1e-9)       // did not move while frozen
+    }
+
+    @Test
+    fun `slow power-up reduces enemy movement`() {
+        val engine = newEngine()
+        engine.powerUps.add(PowerUp(1, PowerUpType.SLOW, x = 5, y = 1))
+        engine.setDirection(Direction.DOWN)
+        engine.step()
+        assertTrue(engine.slowRemaining > 0.0)
+
+        val enemy = Bouncer(id = 3, x = 3.0, y = 3.0, vx = 10.0, vy = 0.0)
+        engine.enemies.add(enemy)
+        engine.tick(0.1)
+        // Full speed would reach ~4.0; slowed (0.4x) reaches ~3.4
+        assertTrue("slowed enemy moved too far: ${enemy.x}", enemy.x < 3.6)
+        assertTrue(enemy.x > 3.0)
+    }
+
+    // ---------------------------------------------------------------- combo multiplier
+
+    @Test
+    fun `chained captures raise the multiplier and it resets after the window`() {
+        val engine = engineWithEnemy()
+
+        // Capture 1: cut off the top-left corner
+        engine.setDirection(Direction.LEFT); engine.step(); engine.step() // border to (3,0)
+        engine.setDirection(Direction.DOWN); engine.step(); engine.step() // draw to (3,2)
+        engine.setDirection(Direction.LEFT); engine.step(); engine.step(); engine.step() // -> (0,2) close
+        assertEquals(1, engine.captureCount)
+        assertEquals(1, engine.scoreMultiplier)
+        assertTrue(engine.comboTimeRemaining > 0.0)
+
+        // Capture 2 shortly after: another small pocket on the left wall
+        engine.setDirection(Direction.DOWN); engine.step(); engine.step() // border to (0,4)
+        engine.setDirection(Direction.RIGHT); engine.step(); engine.step() // draw to (2,4)
+        engine.setDirection(Direction.UP); engine.step()                   // (2,3)
+        engine.setDirection(Direction.LEFT); engine.step(); engine.step()  // -> (0,3) close
+        assertEquals(2, engine.captureCount)
+        assertEquals(2, engine.scoreMultiplier)
+
+        // Let the combo window lapse (> COMBO_DURATION of 5s) -> multiplier resets
+        engine.tick(6.0)
+        assertEquals(1, engine.scoreMultiplier)
+        assertEquals(0.0, engine.comboTimeRemaining, 1e-9)
+    }
+
+    // ---------------------------------------------------------------- star rating
+
+    @Test
+    fun `star rating rewards clean, comfortable clears`() {
+        // Not cleared
+        assertEquals(0, computeStars(60.0, 75.0, 100.0, 180, 3, 3))
+        // Cleared but scrappy: lost lives, thin margin, little time
+        assertEquals(1, computeStars(75.5, 75.0, 20.0, 180, 1, 3))
+        // Cleared with no damage
+        assertTrue(computeStars(76.0, 75.0, 40.0, 180, 3, 3) >= 2)
+        // Flawless: no damage + big capture margin
+        assertEquals(3, computeStars(90.0, 75.0, 120.0, 180, 3, 3))
+    }
+
     // ---------------------------------------------------------------- enemy spawning
 
     @Test

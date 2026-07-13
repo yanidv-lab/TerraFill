@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +39,7 @@ fun LevelCompleteScreen(
     levelNumber: Int,
     score: Int,
     timeRemaining: Int,
+    stars: Int = 3,
     onNextLevel: () -> Unit,
     onMainMenu: () -> Unit,
     modifier: Modifier = Modifier
@@ -86,29 +89,34 @@ fun LevelCompleteScreen(
                 .widthIn(max = 450.dp)
                 .offset { IntOffset(shakeOffsetX.value.roundToInt(), shakeOffsetY.value.roundToInt()) }
         ) {
-            // Stars indicator
+            // Stars earned this run: each earned star pops in one after another
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Star",
-                    tint = NeonYellow,
-                    modifier = Modifier.size(32.dp)
-                )
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Star",
-                    tint = NeonYellow,
-                    modifier = Modifier.size(48.dp)
-                )
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Star",
-                    tint = NeonYellow,
-                    modifier = Modifier.size(32.dp)
-                )
+                repeat(3) { i ->
+                    val earned = i < stars
+                    val scale = remember { Animatable(0f) }
+                    LaunchedEffect(stars) {
+                        if (earned) {
+                            delay(200L + i * 220L)
+                            scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.4f))
+                        } else {
+                            scale.snapTo(1f)
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = if (earned) "Star earned" else "Star",
+                        tint = if (earned) NeonYellow else Color.White.copy(alpha = 0.15f),
+                        modifier = Modifier
+                            .size(if (i == 1) 48.dp else 32.dp)
+                            .graphicsLayer {
+                                scaleX = scale.value
+                                scaleY = scale.value
+                            }
+                    )
+                }
             }
 
             // Headline
