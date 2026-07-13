@@ -64,6 +64,12 @@ sealed class Enemy {
     abstract fun update(grid: Array<Array<GridCellState>>, dt: Double)
 
     /**
+     * Tells the enemy where the player currently is (cell-center coordinates). The engine
+     * calls this before [update]. Most enemies ignore it; hunting enemies steer toward it.
+     */
+    open fun setTarget(x: Double, y: Double) {}
+
+    /**
      * Helper to clone the enemy instance.
      */
     abstract fun copyWith(x: Double = this.x, y: Double = this.y, vx: Double = this.vx, vy: Double = this.vy): Enemy
@@ -271,5 +277,62 @@ class Crawler(
             abs(vx) >= abs(vy) -> if (vx > 0) Direction.RIGHT else Direction.LEFT
             else -> if (vy > 0) Direction.DOWN else Direction.UP
         }
+    }
+}
+
+/**
+ * Hunter enemy - a menacing spider that actively chases the player. It continuously
+ * steers its velocity toward the player's last known position (with a limited turn
+ * rate, so it can be juked), while still bouncing off captured territory - so it
+ * can't escape the open region it lives in. The most dangerous enemy; introduced
+ * at higher levels.
+ */
+class Hunter(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.45
+) : Enemy() {
+    override val type: String = "Hunter"
+
+    private val speed = hypot(vx, vy).coerceAtLeast(1.0)
+    private var targetX = x
+    private var targetY = y
+
+    override fun setTarget(x: Double, y: Double) {
+        targetX = x
+        targetY = y
+    }
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        // Desired heading toward the player
+        val dx = targetX - x
+        val dy = targetY - y
+        val dist = hypot(dx, dy)
+        if (dist > 1e-6) {
+            val desiredVx = dx / dist * speed
+            val desiredVy = dy / dist * speed
+            // Blend current velocity toward the desired heading (limited turn rate)
+            val steer = (TURN_RATE * dt).coerceAtMost(1.0)
+            vx += (desiredVx - vx) * steer
+            vy += (desiredVy - vy) * steer
+            // Renormalize back to the constant chase speed
+            val mag = hypot(vx, vy)
+            if (mag > 1e-6) {
+                vx = vx / mag * speed
+                vy = vy / mag * speed
+            }
+        }
+        stepBounce(grid, dt)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
+        return Hunter(id, x, y, vx, vy, radius)
+    }
+
+    private companion object {
+        const val TURN_RATE = 2.2   // how quickly the hunter re-aims (higher = harder to juke)
     }
 }

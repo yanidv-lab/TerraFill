@@ -35,7 +35,7 @@ class SoundManager(context: Context) {
 
         for (res in intArrayOf(
             R.raw.sfx_capture, R.raw.sfx_crash, R.raw.sfx_level_complete,
-            R.raw.sfx_game_over, R.raw.sfx_tap
+            R.raw.sfx_game_over, R.raw.sfx_tap, R.raw.sfx_powerup
         )) {
             soundIds[res] = soundPool.load(appContext, res, 1)
         }
@@ -48,6 +48,7 @@ class SoundManager(context: Context) {
     }
 
     fun capture() = play(R.raw.sfx_capture)
+    fun powerUp() = play(R.raw.sfx_powerup)
     fun crash() = play(R.raw.sfx_crash)
     fun levelComplete() = play(R.raw.sfx_level_complete)
     fun gameOver() = play(R.raw.sfx_game_over)

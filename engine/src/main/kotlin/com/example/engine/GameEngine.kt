@@ -85,6 +85,43 @@ class GameEngine(
     var gridVersion = 0
         private set
 
+    // --- Combo / score multiplier ---
+    /** Current score multiplier from chaining captures quickly (1..MAX_MULTIPLIER). */
+    var scoreMultiplier = 1
+        private set
+    /** Seconds left in the combo window; capture again before it hits 0 to keep chaining. */
+    var comboTimeRemaining = 0.0
+        private set
+
+    // --- Power-ups ---
+    /** Collectibles currently on the field. */
+    val powerUps = mutableListOf<PowerUp>()
+    /** True while a shield is armed (will absorb the next crash). */
+    var shieldActive = false
+        private set
+    /** Seconds enemies remain frozen (0 = not frozen). */
+    var freezeRemaining = 0.0
+        private set
+    /** Seconds enemies remain slowed (0 = normal speed). */
+    var slowRemaining = 0.0
+        private set
+    /** Monotonic counter incremented each time a power-up is collected. */
+    var powerUpCollectedCount = 0
+        private set
+    /** The type collected in the most recent pickup (for UI/sfx). */
+    var lastCollectedPowerUp: PowerUpType? = null
+        private set
+
+    private var powerUpSpawnTimer = POWERUP_FIRST_SPAWN
+    private var powerUpIdCounter = 1
+    private val powerUpRandom = Random(levelConfig.levelNumber * 97 + 7)
+
+    /** Star rating (0-3) for the level, valid once status is LEVEL_COMPLETE. */
+    var stars = 0
+        private set
+
+    private val startingLives = initialLives
+
     // Enemy state
     val enemies = mutableListOf<Enemy>()
 
@@ -110,6 +147,18 @@ class GameEngine(
 
         /** How many recent head positions to keep for caterpillar body rendering. */
         const val MAX_PATH_HISTORY = 24
+
+        /** Combo window: capture again within this many seconds to raise the multiplier. */
+        const val COMBO_DURATION = 5.0
+        const val MAX_MULTIPLIER = 8
+
+        /** Power-up tuning. */
+        const val POWERUP_FIRST_SPAWN = 6.0     // seconds before the first one appears
+        const val POWERUP_INTERVAL = 12.0       // seconds between spawns
+        const val MAX_POWERUPS = 3              // max simultaneously on the field
+        const val FREEZE_SECONDS = 3.5
+        const val SLOW_SECONDS = 5.0
+        const val SLOW_FACTOR = 0.4
     }
 
     init {
@@ -165,6 +214,19 @@ class GameEngine(
 
             enemies.add(Jumper(idCounter++, rx, ry, vx, vy))
         }
+
+        // Spawn Hunters (chasers) in the lower half so they start away from the
+        // player's top-border spawn, giving the player a moment before the chase.
+        for (i in 0 until levelConfig.hunterCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble((height * 0.5), (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.85
+            val vx = speed * kotlin.math.cos(angle)
+            val vy = speed * kotlin.math.sin(angle)
+
+            enemies.add(Hunter(idCounter++, rx, ry, vx, vy))
+        }
     }
 
     /**
@@ -202,9 +264,35 @@ class GameEngine(
             return
         }
 
-        // 2. Update Enemies
-        for (enemy in enemies) {
-            enemy.update(grid, dt)
+        // 1b. Tick down combo window and power-up effect timers
+        if (comboTimeRemaining > 0.0) {
+            comboTimeRemaining = (comboTimeRemaining - dt).coerceAtLeast(0.0)
+            if (comboTimeRemaining == 0.0) scoreMultiplier = 1
+        }
+        if (freezeRemaining > 0.0) freezeRemaining = (freezeRemaining - dt).coerceAtLeast(0.0)
+        if (slowRemaining > 0.0) slowRemaining = (slowRemaining - dt).coerceAtLeast(0.0)
+
+        // 1c. Periodically spawn power-ups
+        powerUpSpawnTimer -= dt
+        if (powerUpSpawnTimer <= 0.0) {
+            spawnPowerUp()
+            powerUpSpawnTimer = POWERUP_INTERVAL
+        }
+
+        // 2. Update Enemies (tell chasers where the player is, then move everyone).
+        //    Frozen -> no movement; slowed -> reduced dt.
+        val targetX = playerX + 0.5
+        val targetY = playerY + 0.5
+        val enemyDt = when {
+            freezeRemaining > 0.0 -> 0.0
+            slowRemaining > 0.0 -> dt * SLOW_FACTOR
+            else -> dt
+        }
+        if (enemyDt > 0.0) {
+            for (enemy in enemies) {
+                enemy.setTarget(targetX, targetY)
+                enemy.update(grid, enemyDt)
+            }
         }
 
         // 3. Check enemy-player direct collision or trail collision before moving player
@@ -322,12 +410,31 @@ class GameEngine(
                     captureCount++
                     gridVersion++
 
-                    // Scoring
-                    score += lastCapturedCells.size * 15
+                    // Combo: chaining captures within the window raises the multiplier
+                    scoreMultiplier = if (comboTimeRemaining > 0.0) {
+                        (scoreMultiplier + 1).coerceAtMost(MAX_MULTIPLIER)
+                    } else {
+                        1
+                    }
+                    comboTimeRemaining = COMBO_DURATION
+
+                    // Scoring (scaled by the current multiplier)
+                    score += lastCapturedCells.size * 15 * scoreMultiplier
+
+                    // Any power-up swallowed by the newly captured area is removed
+                    powerUps.removeAll { grid[it.x][it.y] == GridCellState.CAPTURED }
 
                     recalculateCapturedPercentage()
 
                     if (capturedPercentage >= levelConfig.targetPercentage) {
+                        stars = computeStars(
+                            capturedPercentage = capturedPercentage,
+                            targetPercentage = levelConfig.targetPercentage,
+                            timeRemainingSeconds = timeRemainingSeconds,
+                            timeLimitSeconds = levelConfig.timeLimitSeconds,
+                            livesRemaining = lives,
+                            initialLives = startingLives
+                        )
                         status = GameStateStatus.LEVEL_COMPLETE
                     }
                 } else {
@@ -364,18 +471,64 @@ class GameEngine(
             pathHistory.removeLast()
         }
         advancing = true
+
+        // Collect any power-up on the cell the head just entered
+        val idx = powerUps.indexOfFirst { it.x == playerX && it.y == playerY }
+        if (idx >= 0) applyPowerUp(powerUps.removeAt(idx))
+    }
+
+    /** Applies a collected power-up's effect and records the pickup event. */
+    private fun applyPowerUp(powerUp: PowerUp) {
+        when (powerUp.type) {
+            PowerUpType.SHIELD -> shieldActive = true
+            PowerUpType.FREEZE -> freezeRemaining = FREEZE_SECONDS
+            PowerUpType.SLOW -> slowRemaining = SLOW_SECONDS
+        }
+        lastCollectedPowerUp = powerUp.type
+        powerUpCollectedCount++
+    }
+
+    /**
+     * Spawns one power-up on a random EMPTY interior cell that is clear of the
+     * player, the trail, and any enemy. Does nothing if the field is full.
+     */
+    private fun spawnPowerUp() {
+        if (powerUps.size >= MAX_POWERUPS) return
+
+        val enemyCells = enemies.map {
+            Pair(floor(it.x).toInt().coerceIn(0, width - 1), floor(it.y).toInt().coerceIn(0, height - 1))
+        }.toHashSet()
+
+        repeat(24) { // a handful of attempts to find a free cell
+            val px = powerUpRandom.nextInt(2, width - 2)
+            val py = powerUpRandom.nextInt(2, height - 2)
+            val free = grid[px][py] == GridCellState.EMPTY &&
+                !(px == playerX && py == playerY) &&
+                enemyCells.none { it.first == px && it.second == py } &&
+                powerUps.none { it.x == px && it.y == py }
+            if (free) {
+                val type = PowerUpType.entries[powerUpRandom.nextInt(PowerUpType.entries.size)]
+                powerUps.add(PowerUp(powerUpIdCounter++, type, px, py))
+                return
+            }
+        }
     }
 
     /**
      * Handles the crash event when the player hits an enemy, their trail, or crosses their own trail.
      */
     private fun handleCrash() {
-        lives--
+        // A shield absorbs the hit: lose the trail and reset, but keep the life.
+        val shielded = shieldActive
+        if (shielded) shieldActive = false else lives--
         crashCount++
         playerDirection = Direction.NONE
         isDrawing = false
         advancing = false
         moveProgress = 1.0
+        // A crash breaks the combo chain
+        scoreMultiplier = 1
+        comboTimeRemaining = 0.0
 
         // Clear the unfinished trail and restore those cells back to EMPTY
         if (trail.isNotEmpty()) {

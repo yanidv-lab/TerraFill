@@ -26,6 +26,7 @@ fun NavGraph(
 ) {
     val highestUnlockedLevel by viewModel.highestUnlockedLevel.collectAsStateWithLifecycle()
     val highScores by viewModel.highScores.collectAsStateWithLifecycle()
+    val levelStars by viewModel.levelStars.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
@@ -37,6 +38,7 @@ fun NavGraph(
             MainMenuScreen(
                 highestUnlockedLevel = highestUnlockedLevel,
                 highScores = highScores,
+                levelStars = levelStars,
                 onStartGame = { level ->
                     navController.navigate(Screen.Game.createRoute(level))
                 },
@@ -69,7 +71,8 @@ fun NavGraph(
                             Screen.LevelComplete.createRoute(
                                 levelNumber = gameState.levelNumber,
                                 score = gameState.score,
-                                timeRemaining = gameState.timeRemainingSeconds.toInt()
+                                timeRemaining = gameState.timeRemainingSeconds.toInt(),
+                                stars = gameState.stars
                             )
                         ) {
                             popUpTo(Screen.MainMenu.route) // Clean game from backstack
@@ -117,17 +120,20 @@ fun NavGraph(
             arguments = listOf(
                 navArgument("levelNumber") { type = NavType.IntType },
                 navArgument("score") { type = NavType.IntType },
-                navArgument("timeRemaining") { type = NavType.IntType }
+                navArgument("timeRemaining") { type = NavType.IntType },
+                navArgument("stars") { type = NavType.IntType }
             )
         ) { backStackEntry ->
             val levelNumber = backStackEntry.arguments?.getInt("levelNumber") ?: 1
             val score = backStackEntry.arguments?.getInt("score") ?: 0
             val timeRemaining = backStackEntry.arguments?.getInt("timeRemaining") ?: 0
+            val stars = backStackEntry.arguments?.getInt("stars") ?: 0
 
             LevelCompleteScreen(
                 levelNumber = levelNumber,
                 score = score,
                 timeRemaining = timeRemaining,
+                stars = stars,
                 onNextLevel = {
                     navController.navigate(Screen.Game.createRoute(levelNumber + 1)) {
                         popUpTo(Screen.MainMenu.route)

@@ -10,9 +10,9 @@ sealed class Screen(val route: String) {
         fun createRoute(levelNumber: Int) = "game/$levelNumber"
     }
 
-    object LevelComplete : Screen("level_complete/{levelNumber}/{score}/{timeRemaining}") {
-        fun createRoute(levelNumber: Int, score: Int, timeRemaining: Int) = 
-            "level_complete/$levelNumber/$score/$timeRemaining"
+    object LevelComplete : Screen("level_complete/{levelNumber}/{score}/{timeRemaining}/{stars}") {
+        fun createRoute(levelNumber: Int, score: Int, timeRemaining: Int, stars: Int) =
+            "level_complete/$levelNumber/$score/$timeRemaining/$stars"
     }
 
     object GameOver : Screen("game_over/{levelNumber}/{score}") {

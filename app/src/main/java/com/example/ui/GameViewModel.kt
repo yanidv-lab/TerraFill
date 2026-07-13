@@ -47,7 +47,16 @@ data class GameUiState(
     val status: GameStateStatus = GameStateStatus.RUNNING,
     val targetPercentage: Double = 75.0,
     val highestUnlockedLevel: Int = 1,
-    val soundEnabled: Boolean = true
+    val soundEnabled: Boolean = true,
+    // Combo, power-ups and stars
+    val scoreMultiplier: Int = 1,
+    val comboTimeRemaining: Double = 0.0,
+    val powerUps: List<PowerUp> = emptyList(),
+    val shieldActive: Boolean = false,
+    val freezeRemaining: Double = 0.0,
+    val slowRemaining: Double = 0.0,
+    val powerUpCollectedCount: Int = 0,
+    val stars: Int = 0
 )
 
 /**
@@ -65,6 +74,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // Event edges used to fire one-shot sounds
     private var lastCaptureCount = 0
     private var lastCrashCount = 0
+    private var lastPowerUpCount = 0
     private var lastStatus = GameStateStatus.RUNNING
 
     // Grid snapshot cache: only rebuilt when the engine's grid actually changes,
@@ -80,6 +90,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _highScores = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val highScores: StateFlow<Map<Int, Int>> = _highScores.asStateFlow()
 
+    // Observe per-level star ratings
+    private val _levelStars = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val levelStars: StateFlow<Map<Int, Int>> = _levelStars.asStateFlow()
+
     private var engine: GameEngine? = null
 
     init {
@@ -90,13 +104,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Collect high scores for all levels
-        for (lvl in 1..10) {
+        // Collect high scores and stars for all levels
+        for (lvl in 1..LevelConfig.TOTAL_LEVELS) {
             viewModelScope.launch {
                 preferences.getBestScore(lvl).collect { score ->
-                    val currentMap = _highScores.value.toMutableMap()
-                    currentMap[lvl] = score
-                    _highScores.value = currentMap
+                    _highScores.value = _highScores.value.toMutableMap().apply { put(lvl, score) }
+                }
+            }
+            viewModelScope.launch {
+                preferences.getBestStars(lvl).collect { stars ->
+                    _levelStars.value = _levelStars.value.toMutableMap().apply { put(lvl, stars) }
                 }
             }
         }
@@ -111,6 +128,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         engine = newEngine
         lastCaptureCount = 0
         lastCrashCount = 0
+        lastPowerUpCount = 0
         lastStatus = GameStateStatus.RUNNING
         cachedGridVersion = -1
         sound.startMusic()
@@ -134,6 +152,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (activeEngine.crashCount > lastCrashCount) {
             lastCrashCount = activeEngine.crashCount
             sound.crash()
+        }
+        if (activeEngine.powerUpCollectedCount > lastPowerUpCount) {
+            lastPowerUpCount = activeEngine.powerUpCollectedCount
+            sound.powerUp()
         }
         if (activeEngine.status != lastStatus) {
             when (activeEngine.status) {
@@ -161,7 +183,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     level = activeEngine.levelConfig.levelNumber,
                     percentage = activeEngine.capturedPercentage,
                     timeRemaining = activeEngine.timeRemainingSeconds.toInt(),
-                    score = activeEngine.score
+                    score = activeEngine.score,
+                    stars = activeEngine.stars
                 )
             }
         }
@@ -256,7 +279,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             timeRemainingSeconds = activeEngine.timeRemainingSeconds,
             capturedPercentage = activeEngine.capturedPercentage,
             status = activeEngine.status,
-            targetPercentage = activeEngine.levelConfig.targetPercentage
+            targetPercentage = activeEngine.levelConfig.targetPercentage,
+            scoreMultiplier = activeEngine.scoreMultiplier,
+            comboTimeRemaining = activeEngine.comboTimeRemaining,
+            powerUps = activeEngine.powerUps.toList(),
+            shieldActive = activeEngine.shieldActive,
+            freezeRemaining = activeEngine.freezeRemaining,
+            slowRemaining = activeEngine.slowRemaining,
+            powerUpCollectedCount = activeEngine.powerUpCollectedCount,
+            stars = activeEngine.stars
         )
     }
 }
