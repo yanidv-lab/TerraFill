@@ -102,6 +102,9 @@ fun NavGraph(
                     navController.navigate(Screen.MainMenu.route) {
                         popUpTo(Screen.MainMenu.route) { inclusive = true }
                     }
+                },
+                onToggleSound = {
+                    viewModel.toggleSound()
                 }
             )
         }

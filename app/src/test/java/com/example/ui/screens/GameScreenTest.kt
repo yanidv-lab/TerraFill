@@ -47,7 +47,8 @@ class GameScreenTest {
                     onDirectionChanged = {},
                     onTick = {},
                     onPauseToggle = {},
-                    onQuitGame = {}
+                    onQuitGame = {},
+                    onToggleSound = {}
                 )
             }
         }

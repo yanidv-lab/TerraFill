@@ -26,6 +26,7 @@ class GameEngineTest {
             gridHeight = 10,
             bouncerCount = 0,
             crawlerCount = 0,
+            jumperCount = 0,
             enemySpeed = 0.0,
             targetPercentage = targetPercentage,
             timeLimitSeconds = timeLimitSeconds
@@ -401,6 +402,93 @@ class GameEngineTest {
             return positions
         }
         assertEquals(runOnce(), runOnce())
+    }
+
+    // ---------------------------------------------------------------- grid versioning
+
+    @Test
+    fun `grid version bumps only when the grid actually changes`() {
+        val engine = newEngine()
+        val v0 = engine.gridVersion
+
+        // Moving along the border does not change the grid
+        engine.setDirection(Direction.RIGHT)
+        engine.step()
+        assertEquals(v0, engine.gridVersion)
+
+        // Drawing a trail cell changes the grid
+        engine.setDirection(Direction.DOWN)
+        engine.step()
+        val v1 = engine.gridVersion
+        assertTrue(v1 > v0)
+
+        // Standing still (no direction) does not change the grid
+        engine.setDirection(Direction.NONE)
+        engine.step()
+        assertEquals(v1, engine.gridVersion)
+    }
+
+    // ---------------------------------------------------------------- level scaling
+
+    @Test
+    fun `difficulty scales up with level number`() {
+        val early = LevelConfig.getConfig(1)
+        val late = LevelConfig.getConfig(10)
+
+        assertEquals(2, early.bouncerCount + early.crawlerCount + early.jumperCount) // gentle start
+        assertEquals(0, early.jumperCount)                                            // no jumpers yet
+        assertTrue(late.enemySpeed > early.enemySpeed)
+        assertTrue(late.jumperCount > 0)                                              // jumpers appear later
+        assertTrue(late.targetPercentage >= early.targetPercentage)
+        assertTrue(late.timeLimitSeconds <= early.timeLimitSeconds)
+        assertTrue(
+            late.bouncerCount + late.crawlerCount + late.jumperCount >
+                early.bouncerCount + early.crawlerCount + early.jumperCount
+        )
+    }
+
+    @Test
+    fun `enemy count is capped even at very high levels`() {
+        val cfg = LevelConfig.getConfig(999)
+        assertTrue(cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount <= 11)
+        assertTrue(cfg.enemySpeed <= 9.0)
+    }
+
+    // ---------------------------------------------------------------- jumping spider
+
+    @Test
+    fun `jumper drifts then leaps to a much faster speed`() {
+        val jumper = Jumper(id = 1, x = 20.0, y = 25.0, vx = 2.0, vy = 0.0)
+        val grid = Array(40) { x ->
+            Array(50) { y ->
+                if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+            }
+        }
+        var maxSpeed = 0.0
+        repeat(600) {
+            jumper.update(grid, 0.016)
+            maxSpeed = maxOf(maxSpeed, kotlin.math.hypot(jumper.vx, jumper.vy))
+            // Must never leave the field or enter captured cells
+            assertTrue(jumper.x in 0.0..40.0 && jumper.y in 0.0..50.0)
+        }
+        // Cruise speed is ~2.0; a leap must reach clearly beyond it
+        assertTrue("expected a fast leap, saw max $maxSpeed", maxSpeed > 4.0)
+    }
+
+    @Test
+    fun `jumper behaviour is deterministic for a given id`() {
+        fun run(): List<Pair<Double, Double>> {
+            val j = Jumper(id = 7, x = 20.0, y = 25.0, vx = 2.0, vy = 0.0)
+            val grid = Array(40) { x ->
+                Array(50) { y ->
+                    if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+                }
+            }
+            val path = mutableListOf<Pair<Double, Double>>()
+            repeat(300) { j.update(grid, 0.016); path.add(j.x to j.y) }
+            return path
+        }
+        assertEquals(run(), run())
     }
 
     // ---------------------------------------------------------------- enemy spawning

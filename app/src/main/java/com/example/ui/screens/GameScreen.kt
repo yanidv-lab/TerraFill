@@ -31,8 +31,11 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
@@ -43,6 +46,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
@@ -107,6 +113,7 @@ fun GameScreen(
     onTick: (Double) -> Unit,
     onPauseToggle: () -> Unit,
     onQuitGame: () -> Unit,
+    onToggleSound: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // 1. Frame-synced Game Loop driving the GameEngine simulation
@@ -122,6 +129,33 @@ fun GameScreen(
                 }
             }
         }
+    }
+
+    // Keep the screen awake while playing
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+
+    // A short buzz on every crash
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(state.crashCount) {
+        if (state.crashCount > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    // Auto-pause the game (and its music) when the app goes to the background
+    val currentStatus by rememberUpdatedState(state.status)
+    val pauseNow by rememberUpdatedState(onPauseToggle)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && currentStatus == GameStateStatus.RUNNING) {
+                pauseNow()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Layout Root
@@ -221,7 +255,27 @@ fun GameScreen(
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace
                             )
-                            
+
+                            // Sound on/off toggle
+                            OutlinedButton(
+                                onClick = onToggleSound,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonYellow),
+                                border = BorderStroke(1.5.dp, NeonYellow),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    if (state.soundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                    contentDescription = "Toggle sound",
+                                    tint = NeonYellow
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    if (state.soundEnabled) "SOUND: ON" else "SOUND: OFF",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Button(
                                     onClick = onPauseToggle,
@@ -467,6 +521,7 @@ fun Playfield(
     val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
     val spiderRedSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_red)
     val spiderBlueSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_blue)
+    val spiderGreenSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
 
     Box(
         modifier = Modifier
@@ -629,9 +684,12 @@ fun Playfield(
                         ((enemy.x + 0.5) * cellW).toFloat(),
                         ((enemy.y + 0.5) * cellH).toFloat()
                     )
-                    val isBouncer = enemy.type == "Bouncer"
-                    // A soft menacing glow so enemies pop against the dark field
-                    val glow = if (isBouncer) NeonMagenta else NeonCyan
+                    // Sprite + glow by enemy type: red = bouncer, blue = crawler, green = jumper
+                    val (sprite, glow) = when (enemy.type) {
+                        "Bouncer" -> spiderRedSprite to NeonMagenta
+                        "Crawler" -> spiderBlueSprite to NeonCyan
+                        else -> spiderGreenSprite to NeonGreen   // Jumper
+                    }
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(glow.copy(alpha = 0.4f), Color.Transparent),
@@ -641,13 +699,15 @@ fun Playfield(
                         radius = cellMin * 1.9f,
                         center = center
                     )
+                    // Jumpers stretch bigger during a fast leap; others gently bob
+                    val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
+                    val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
-                    // Face travel direction horizontally (art faces right); flip when moving left
                     val flip = enemy.vx < 0
                     drawSprite(
-                        image = if (isBouncer) spiderRedSprite else spiderBlueSprite,
+                        image = sprite,
                         center = center + Offset(0f, bob),
-                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS,
+                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale,
                         rotationDeg = 0f,
                         flipX = flip
                     )

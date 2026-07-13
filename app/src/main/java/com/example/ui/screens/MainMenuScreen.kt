@@ -180,7 +180,7 @@ fun MainMenuScreen(
                             )
                         }
                         Text(
-                            text = "$highestUnlockedLevel/5 UNLOCKED",
+                            text = "$highestUnlockedLevel/${com.example.engine.LevelConfig.TOTAL_LEVELS} UNLOCKED",
                             color = NeonGreen,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -188,14 +188,14 @@ fun MainMenuScreen(
                         )
                     }
 
-                    // 5 Levels Grid
+                    // Campaign level grid
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.height(180.dp)
+                        modifier = Modifier.height(240.dp)
                     ) {
-                        items(5) { index ->
+                        items(com.example.engine.LevelConfig.TOTAL_LEVELS) { index ->
                             val levelNum = index + 1
                             val isUnlocked = levelNum <= highestUnlockedLevel
 
