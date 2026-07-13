@@ -26,6 +26,7 @@ class GreetingScreenshotTest {
             MyApplicationTheme {
                 MainMenuScreen(
                     highestUnlockedLevel = 3,
+                    highScores = mapOf(1 to 15000, 2 to 24000),
                     onStartGame = {},
                     onResetProgress = {}
                 )

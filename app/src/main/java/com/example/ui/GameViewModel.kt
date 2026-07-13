@@ -64,6 +64,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val highestUnlockedLevel: StateFlow<Int> = preferences.highestUnlockedLevel
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
 
+    // Observe level high scores
+    private val _highScores = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val highScores: StateFlow<Map<Int, Int>> = _highScores.asStateFlow()
+
     private var engine: GameEngine? = null
 
     init {
@@ -71,6 +75,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             highestUnlockedLevel.collect { level ->
                 _uiState.value = _uiState.value.copy(highestUnlockedLevel = level)
+            }
+        }
+
+        // Collect high scores for all levels
+        for (lvl in 1..10) {
+            viewModelScope.launch {
+                preferences.getBestScore(lvl).collect { score ->
+                    val currentMap = _highScores.value.toMutableMap()
+                    currentMap[lvl] = score
+                    _highScores.value = currentMap
+                }
             }
         }
     }
@@ -110,7 +125,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 preferences.saveLevelCompletion(
                     level = activeEngine.levelConfig.levelNumber,
                     percentage = activeEngine.capturedPercentage,
-                    timeRemaining = activeEngine.timeRemainingSeconds.toInt()
+                    timeRemaining = activeEngine.timeRemainingSeconds.toInt(),
+                    score = activeEngine.score
                 )
             }
         }

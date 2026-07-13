@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,27 +24,214 @@ import androidx.compose.ui.geometry.lerp as lerpOffset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.lerp as lerpColor
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
 import com.example.ui.theme.*
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.delay
+
+/** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
+private const val PLAYER_SPRITE_CELLS = 2.4f
+
+/** How many grid cells wide the enemy spider sprite is drawn. */
+private const val ENEMY_SPRITE_CELLS = 2.2f
+
+/**
+ * Procedurally draws a dynamic, animated neon caterpillar (player) centered at [center].
+ */
+private fun DrawScope.drawCaterpillar(
+    center: Offset,
+    targetLongSide: Float,
+    rotationDeg: Float,
+    flipX: Boolean,
+    now: Long
+) {
+    withTransform({
+        rotate(rotationDeg, center)
+        if (flipX) scale(-1f, 1f, center)
+    }) {
+        // Body segments trailing to the right (since head faces left)
+        val bodyYOffset = (sin(now / 150.0) * targetLongSide * 0.05f).toFloat()
+
+        // Segment 4 (Tail)
+        drawCircle(
+            color = NeonGreen.copy(alpha = 0.4f),
+            radius = targetLongSide * 0.08f,
+            center = center + Offset(targetLongSide * 0.65f, -bodyYOffset * 0.5f)
+        )
+        // Segment 3
+        drawCircle(
+            color = NeonGreen.copy(alpha = 0.6f),
+            radius = targetLongSide * 0.13f,
+            center = center + Offset(targetLongSide * 0.5f, bodyYOffset * 0.5f)
+        )
+        // Segment 2
+        drawCircle(
+            color = NeonGreen.copy(alpha = 0.8f),
+            radius = targetLongSide * 0.18f,
+            center = center + Offset(targetLongSide * 0.35f, -bodyYOffset * 0.8f)
+        )
+        // Segment 1
+        drawCircle(
+            color = NeonGreen,
+            radius = targetLongSide * 0.22f,
+            center = center + Offset(targetLongSide * 0.18f, bodyYOffset)
+        )
+        // Head
+        drawCircle(
+            color = Color.White,
+            radius = targetLongSide * 0.26f,
+            center = center
+        )
+        drawCircle(
+            color = NeonGreen,
+            radius = targetLongSide * 0.24f,
+            center = center
+        )
+
+        // Glowing neon eyes
+        drawCircle(
+            color = NeonCyan,
+            radius = targetLongSide * 0.05f,
+            center = center + Offset(-targetLongSide * 0.1f, -targetLongSide * 0.09f)
+        )
+        drawCircle(
+            color = NeonCyan,
+            radius = targetLongSide * 0.05f,
+            center = center + Offset(-targetLongSide * 0.1f, targetLongSide * 0.09f)
+        )
+        // Shiny pupils
+        drawCircle(
+            color = Color.White,
+            radius = targetLongSide * 0.02f,
+            center = center + Offset(-targetLongSide * 0.12f, -targetLongSide * 0.09f)
+        )
+        drawCircle(
+            color = Color.White,
+            radius = targetLongSide * 0.02f,
+            center = center + Offset(-targetLongSide * 0.12f, targetLongSide * 0.09f)
+        )
+    }
+}
+
+/**
+ * Procedurally draws an animated neon scuttling spider (enemy) centered at [center].
+ */
+private fun DrawScope.drawSpider(
+    center: Offset,
+    targetLongSide: Float,
+    isBouncer: Boolean,
+    flipX: Boolean,
+    now: Long
+) {
+    val themeColor = if (isBouncer) NeonMagenta else NeonCyan
+
+    // Scuttling legs
+    val legSegments = 4
+    for (i in 0 until legSegments) {
+        val legProgress = (now / 100.0 + i * (Math.PI / legSegments)).toFloat()
+        val scuttleLeft = (sin(legProgress) * targetLongSide * 0.14f).toFloat()
+        val scuttleRight = (cos(legProgress) * targetLongSide * 0.14f).toFloat()
+
+        // Left legs
+        val pathLeft = Path().apply {
+            moveTo(center.x, center.y)
+            val kneeX = center.x - targetLongSide * 0.35f
+            val kneeY = center.y - targetLongSide * 0.25f + (i - 1.5f) * targetLongSide * 0.15f + scuttleLeft
+            val footX = center.x - targetLongSide * 0.55f
+            val footY = center.y + targetLongSide * 0.2f + (i - 1.5f) * targetLongSide * 0.1f + scuttleLeft * 0.5f
+            lineTo(kneeX, kneeY)
+            lineTo(footX, footY)
+        }
+        drawPath(
+            path = pathLeft,
+            color = themeColor,
+            style = Stroke(width = targetLongSide * 0.05f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        // Right legs
+        val pathRight = Path().apply {
+            moveTo(center.x, center.y)
+            val kneeX = center.x + targetLongSide * 0.35f
+            val kneeY = center.y - targetLongSide * 0.25f + (i - 1.5f) * targetLongSide * 0.15f + scuttleRight
+            val footX = center.x + targetLongSide * 0.55f
+            val footY = center.y + targetLongSide * 0.2f + (i - 1.5f) * targetLongSide * 0.1f + scuttleRight * 0.5f
+            lineTo(kneeX, kneeY)
+            lineTo(footX, footY)
+        }
+        drawPath(
+            path = pathRight,
+            color = themeColor,
+            style = Stroke(width = targetLongSide * 0.05f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+
+    // Spider Body
+    drawCircle(
+        color = themeColor,
+        radius = targetLongSide * 0.24f,
+        center = center
+    )
+    // Inner Glow
+    drawCircle(
+        color = Color.White.copy(alpha = 0.9f),
+        radius = targetLongSide * 0.14f,
+        center = center
+    )
+    drawCircle(
+        color = themeColor,
+        radius = targetLongSide * 0.1f,
+        center = center
+    )
+
+    // Eyes
+    val eyeOffsetX = if (flipX) targetLongSide * 0.08f else -targetLongSide * 0.08f
+    drawCircle(
+        color = Color.White,
+        radius = targetLongSide * 0.04f,
+        center = center + Offset(eyeOffsetX, -targetLongSide * 0.05f)
+    )
+    drawCircle(
+        color = Color.White,
+        radius = targetLongSide * 0.04f,
+        center = center + Offset(eyeOffsetX, targetLongSide * 0.05f)
+    )
+    drawCircle(
+        color = themeColor,
+        radius = targetLongSide * 0.02f,
+        center = center + Offset(eyeOffsetX * 1.1f, -targetLongSide * 0.05f)
+    )
+    drawCircle(
+        color = themeColor,
+        radius = targetLongSide * 0.02f,
+        center = center + Offset(eyeOffsetX * 1.1f, targetLongSide * 0.05f)
+    )
+}
 
 /**
  * Interactive Playfield Screen for TerraFill.
@@ -57,6 +246,29 @@ fun GameScreen(
     onQuitGame: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val shakeOffsetX = remember { Animatable(0f) }
+    val shakeOffsetY = remember { Animatable(0f) }
+
+    LaunchedEffect(state.crashCount) {
+        if (state.crashCount > 0) {
+            val duration = 400 // ms
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < duration) {
+                val elapsed = System.currentTimeMillis() - startTime
+                val progress = elapsed.toFloat() / duration
+                val decay = 1f - progress
+                val amp = 12f * decay
+                val x = (sin(elapsed / 12.0) * amp).toFloat()
+                val y = (cos(elapsed / 15.0) * amp).toFloat()
+                shakeOffsetX.snapTo(x)
+                shakeOffsetY.snapTo(y)
+                delay(10)
+            }
+            shakeOffsetX.snapTo(0f)
+            shakeOffsetY.snapTo(0f)
+        }
+    }
+
     // 1. Frame-synced Game Loop driving the GameEngine simulation
     LaunchedEffect(state.status) {
         if (state.status == GameStateStatus.RUNNING) {
@@ -72,22 +284,31 @@ fun GameScreen(
         }
     }
 
-    val bgGradient = Brush.verticalGradient(
-        colors = listOf(ArcadeBgDark, Color(0xFF120B24), ArcadeBgDark)
-    )
-
     // Layout Root
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(bgGradient)
-            .retroArcadeOverlay(scanlineOpacity = 0.12f)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+        modifier = modifier.fillMaxSize()
     ) {
+        // Cosmic space backdrop fills the whole screen (behind the status bar too)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF070714), // Deep outer space dark
+                            Color(0xFF100E26), // Cosmic dark indigo
+                            Color(0xFF070714)
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(12.dp)
+                .offset { IntOffset(shakeOffsetX.value.roundToInt(), shakeOffsetY.value.roundToInt()) },
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -380,9 +601,11 @@ fun Playfield(
     // frame, so effect animations (capture flash, crash shake, enemy pulsing) keep
     // running even while the simulation itself is not ticking (e.g. crash reset).
     var frameTimeMillis by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            withFrameNanos { frameTimeMillis = it / 1_000_000 }
+    LaunchedEffect(state.status) {
+        if (state.status != GameStateStatus.PAUSED) {
+            while (true) {
+                withFrameNanos { frameTimeMillis = it / 1_000_000 }
+            }
         }
     }
 
@@ -404,13 +627,16 @@ fun Playfield(
         }
     }
 
+
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .aspectRatio(state.gridWidth.toFloat() / state.gridHeight.toFloat(), matchHeightConstraintsFirst = true)
-            .border(2.dp, NeonPurple, RoundedCornerShape(16.dp))
+            .border(2.dp, JungleBorder, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
-            .background(ArcadeBgDark)
+            // Dark, mostly-opaque panel so the jungle bleeds in only slightly and gameplay stays readable
+            .background(JunglePanel)
             .pointerInput(Unit) {
                 // Swipe gesture detection
                 detectDragGestures(
@@ -486,20 +712,20 @@ fun Playfield(
                 }
 
                 if (state.grid.isNotEmpty()) {
-                    // ---------- 2. Captured territory with a glowing coastline ----------
+                    // ---------- 2. Reclaimed (captured) land with a sunlit coastline ----------
                     for (x in 0 until state.gridWidth) {
                         for (y in 0 until state.gridHeight) {
                             if (state.grid[x][y] != GridCellState.CAPTURED) continue
                             drawRect(
-                                color = NeonCyan,
+                                color = JungleCaptured,
                                 topLeft = Offset(x * cellW, y * cellH),
                                 size = Size(cellW + 0.5f, cellH + 0.5f), // overlap avoids pixel seams
-                                alpha = 0.15f
+                                alpha = 0.42f
                             )
                         }
                     }
 
-                    // Bright edge only where captured land meets open territory: the coastline
+                    // Bright edge only where reclaimed land meets wild territory: the coastline
                     val edgeWidth = (cellMin * 0.1f).coerceAtLeast(1.5f)
                     for (x in 0 until state.gridWidth) {
                         for (y in 0 until state.gridHeight) {
@@ -509,16 +735,16 @@ fun Playfield(
                             val right = (x + 1) * cellW
                             val bottom = (y + 1) * cellH
                             if (isOpenCell(x - 1, y)) {
-                                drawLine(NeonCyan, Offset(left, top), Offset(left, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, top), Offset(left, bottom), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x + 1, y)) {
-                                drawLine(NeonCyan, Offset(right, top), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(right, top), Offset(right, bottom), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x, y - 1)) {
-                                drawLine(NeonCyan, Offset(left, top), Offset(right, top), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, top), Offset(right, top), edgeWidth, alpha = 0.9f)
                             }
                             if (isOpenCell(x, y + 1)) {
-                                drawLine(NeonCyan, Offset(left, bottom), Offset(right, bottom), edgeWidth, alpha = 0.85f)
+                                drawLine(JungleCoast, Offset(left, bottom), Offset(right, bottom), edgeWidth, alpha = 0.9f)
                             }
                         }
                     }
@@ -558,104 +784,69 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
-                // ---------- 5. Enemies ----------
+                // ---------- 5. Enemies: tarantula sprites (red = bouncer, blue = crawler) ----------
                 for (enemy in state.enemies) {
-                    val ecx = ((enemy.x + 0.5) * cellW).toFloat()
-                    val ecy = ((enemy.y + 0.5) * cellH).toFloat()
-                    val center = Offset(ecx, ecy)
-                    val pulse = 1f + 0.1f * sin(now / 160.0 + enemy.id).toFloat()
-                    val r = enemy.radius.toFloat() * cellMin * pulse
-
-                    if (enemy.type == "Bouncer") {
-                        // Pulsing magenta orb with a soft glow and an orbiting spark
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(NeonMagenta.copy(alpha = 0.5f), Color.Transparent),
-                                center = center,
-                                radius = r * 2.4f
-                            ),
-                            radius = r * 2.4f,
-                            center = center
-                        )
-                        drawCircle(NeonMagenta, r, center)
-                        drawCircle(Color.White, r * 0.4f, center)
-                        val sparkAngle = now / 300.0 + enemy.id
-                        drawCircle(
-                            color = Color.White,
-                            radius = r * 0.18f,
-                            center = Offset(
-                                ecx + (cos(sparkAngle) * r * 1.5).toFloat(),
-                                ecy + (sin(sparkAngle) * r * 1.5).toFloat()
-                            ),
-                            alpha = 0.9f
-                        )
-                    } else {
-                        // Crawler: glowing yellow diamond oriented along its heading
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(NeonYellow.copy(alpha = 0.45f), Color.Transparent),
-                                center = center,
-                                radius = r * 2.2f
-                            ),
-                            radius = r * 2.2f,
-                            center = center
-                        )
-                        val angleDeg = Math.toDegrees(atan2(enemy.vy, enemy.vx)).toFloat() + 45f
-                        rotate(degrees = angleDeg, pivot = center) {
-                            drawRect(
-                                color = NeonYellow,
-                                topLeft = Offset(ecx - r * 0.8f, ecy - r * 0.8f),
-                                size = Size(r * 1.6f, r * 1.6f)
-                            )
-                        }
-                        drawCircle(ArcadeBgDark, r * 0.35f, center)
-                    }
+                    val center = Offset(
+                        ((enemy.x + 0.5) * cellW).toFloat(),
+                        ((enemy.y + 0.5) * cellH).toFloat()
+                    )
+                    val isBouncer = enemy.type == "Bouncer"
+                    // A soft menacing glow so enemies pop against the dark field
+                    val glow = if (isBouncer) NeonMagenta else NeonCyan
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(glow.copy(alpha = 0.4f), Color.Transparent),
+                            center = center,
+                            radius = cellMin * 1.9f
+                        ),
+                        radius = cellMin * 1.9f,
+                        center = center
+                    )
+                    val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
+                    // Face travel direction horizontally; flip when moving left
+                    val flip = enemy.vx < 0
+                    drawSpider(
+                        center = center + Offset(0f, bob),
+                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS,
+                        isBouncer = isBouncer,
+                        flipX = flip,
+                        now = now
+                    )
                 }
 
-                // ---------- 6. The player: a segmented caterpillar ----------
+                // ---------- 6. The player: the caterpillar sprite, facing its direction ----------
                 if (headCenter != null) {
-                    // Body segments follow the head along its recent path (tail drawn first)
-                    val segmentCount = 6
-                    for (k in segmentCount downTo 1) {
-                        if (hist.size <= k) continue
-                        val from = hist.getOrNull(k + 1) ?: hist.last()
-                        val to = hist[k]
-                        val segCenter = lerpOffset(cellCenter(from), cellCenter(to), state.moveProgress)
-                        val towardTail = k.toFloat() / (segmentCount + 1)
-                        val wave = 1f + 0.08f * sin(now / 140.0 - k * 0.9).toFloat()
-                        val segRadius = cellMin * (0.34f - 0.15f * towardTail) * wave
-                        val segColor = lerpColor(NeonGreen, NeonCyan, towardTail)
-
-                        drawCircle(segColor, segRadius * 1.6f, segCenter, alpha = 0.18f) // glow
-                        drawCircle(segColor, segRadius, segCenter)
-                        drawCircle(Color.White, segRadius * 0.35f, segCenter, alpha = 0.45f) // sheen
-                    }
-
-                    // Head: bright with a cyan ring and eyes looking where it's going
-                    val headR = cellMin * 0.42f
-                    drawCircle(Color.White, headR * 1.9f, headCenter, alpha = 0.15f) // glow
-                    drawCircle(Color.White, headR, headCenter)
-                    drawCircle(NeonCyan, headR, headCenter, style = Stroke(width = cellMin * 0.06f), alpha = 0.9f)
-
-                    val facing = when (state.playerDirection) {
-                        Direction.UP -> Offset(0f, -1f)
-                        Direction.DOWN -> Offset(0f, 1f)
-                        Direction.LEFT -> Offset(-1f, 0f)
-                        Direction.RIGHT -> Offset(1f, 0f)
-                        Direction.NONE -> if (hist.size >= 2) {
-                            Offset(
-                                (hist[0].first - hist[1].first).toFloat(),
-                                (hist[0].second - hist[1].second).toFloat()
-                            )
-                        } else {
-                            Offset(0f, 1f)
+                    val dir = if (state.playerDirection != Direction.NONE) {
+                        state.playerDirection
+                    } else if (hist.size >= 2) {
+                        // Infer facing from the last step when standing still
+                        when {
+                            hist[0].first < hist[1].first -> Direction.LEFT
+                            hist[0].first > hist[1].first -> Direction.RIGHT
+                            hist[0].second < hist[1].second -> Direction.UP
+                            else -> Direction.DOWN
                         }
+                    } else {
+                        Direction.LEFT
                     }
-                    val side = Offset(-facing.y, facing.x)
-                    val eyeBase = headCenter + facing * (headR * 0.35f)
-                    val eyeSpread = side * (headR * 0.42f)
-                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase + eyeSpread)
-                    drawCircle(ArcadeBgDark, headR * 0.17f, eyeBase - eyeSpread)
+
+                    // The source art faces LEFT. Mirror for RIGHT; rotate for vertical travel.
+                    val (rotationDeg, flipX) = when (dir) {
+                        Direction.LEFT -> 0f to false
+                        Direction.RIGHT -> 0f to true
+                        Direction.UP -> 90f to false
+                        Direction.DOWN -> 270f to false
+                        Direction.NONE -> 0f to false
+                    }
+
+                    drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
+                    drawCaterpillar(
+                        center = headCenter,
+                        targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
+                        rotationDeg = rotationDeg,
+                        flipX = flipX,
+                        now = now
+                    )
                 }
             }
 

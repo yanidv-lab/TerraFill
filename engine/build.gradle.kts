@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
-  kotlin("jvm") version "2.4.0"
+  kotlin("jvm") version "2.2.10"
 }
 
 group = "com.terrafill"

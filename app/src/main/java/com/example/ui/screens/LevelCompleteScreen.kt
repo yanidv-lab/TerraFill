@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,7 +11,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -19,9 +20,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.*
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 /**
  * Level Complete screen celebrating territory capture victory.
@@ -35,6 +41,27 @@ fun LevelCompleteScreen(
     onMainMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val shakeOffsetX = remember { Animatable(0f) }
+    val shakeOffsetY = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        val duration = 600 // ms
+        val startTime = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startTime < duration) {
+            val elapsed = System.currentTimeMillis() - startTime
+            val progress = elapsed.toFloat() / duration
+            val decay = 1f - progress
+            val amp = 10f * decay
+            val x = (sin(elapsed / 15.0) * amp).toFloat()
+            val y = (cos(elapsed / 18.0) * amp).toFloat()
+            shakeOffsetX.snapTo(x)
+            shakeOffsetY.snapTo(y)
+            delay(10)
+        }
+        shakeOffsetX.snapTo(0f)
+        shakeOffsetY.snapTo(0f)
+    }
+
     val bgGradient = Brush.verticalGradient(
         colors = listOf(
             ArcadeBgDark,
@@ -54,7 +81,10 @@ fun LevelCompleteScreen(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp),
-            modifier = Modifier.fillMaxWidth().widthIn(max = 450.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 450.dp)
+                .offset { IntOffset(shakeOffsetX.value.roundToInt(), shakeOffsetY.value.roundToInt()) }
         ) {
             // Stars indicator
             Row(
@@ -187,7 +217,7 @@ fun LevelCompleteScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (levelNumber < 5) {
+                if (levelNumber < com.example.engine.LevelConfig.LEVELS.size) {
                     Button(
                         onClick = onNextLevel,
                         colors = ButtonDefaults.buttonColors(
