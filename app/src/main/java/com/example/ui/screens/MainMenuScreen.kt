@@ -263,37 +263,32 @@ private fun PlayCard(
                 HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.1f))
             }
 
-            // High-fidelity level selection grid (10 stages)
+            // Level selection grid, laid out in rows of 5, for the whole campaign
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Row 1: Levels 1-5
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    for (level in 1..5) {
-                        LevelBadge(
-                            level = level,
-                            isUnlocked = level <= highestUnlockedLevel,
-                            isCurrent = level == highestUnlockedLevel,
-                            onClick = { onStartGame(level) }
-                        )
-                    }
-                }
-
-                // Row 2: Levels 6-10
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    for (level in 6..10) {
-                        LevelBadge(
-                            level = level,
-                            isUnlocked = level <= highestUnlockedLevel,
-                            isCurrent = level == highestUnlockedLevel,
-                            onClick = { onStartGame(level) }
-                        )
+                val perRow = 5
+                val totalLevels = com.example.engine.LevelConfig.TOTAL_LEVELS
+                val rows = (totalLevels + perRow - 1) / perRow
+                for (row in 0 until rows) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        for (col in 0 until perRow) {
+                            val level = row * perRow + col + 1
+                            if (level <= totalLevels) {
+                                LevelBadge(
+                                    level = level,
+                                    isUnlocked = level <= highestUnlockedLevel,
+                                    isCurrent = level == highestUnlockedLevel,
+                                    onClick = { onStartGame(level) }
+                                )
+                            } else {
+                                // Empty slot keeps the row spacing aligned
+                                Spacer(modifier = Modifier.size(1.dp))
+                            }
+                        }
                     }
                 }
             }

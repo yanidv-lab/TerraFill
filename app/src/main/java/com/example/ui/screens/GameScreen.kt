@@ -74,7 +74,8 @@ private fun DrawScope.drawSprite(
     center: Offset,
     targetLongSide: Float,
     rotationDeg: Float,
-    flipX: Boolean
+    flipX: Boolean,
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null
 ) {
     val aspect = image.width.toFloat() / image.height.toFloat()
     val dw: Float
@@ -97,7 +98,8 @@ private fun DrawScope.drawSprite(
                 (center.y - dh / 2f).roundToInt()
             ),
             dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
-            filterQuality = FilterQuality.High
+            filterQuality = FilterQuality.High,
+            colorFilter = colorFilter
         )
     }
 }
@@ -678,18 +680,28 @@ fun Playfield(
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
-                // ---------- 5. Enemies: tarantula sprites (red = bouncer, blue = crawler) ----------
+                // ---------- 5. Enemies: distinct spider per type ----------
+                // red = bouncer, blue = crawler, green = jumper, crimson-tinted = hunter
                 for (enemy in state.enemies) {
                     val center = Offset(
                         ((enemy.x + 0.5) * cellW).toFloat(),
                         ((enemy.y + 0.5) * cellH).toFloat()
                     )
-                    // Sprite + glow by enemy type: red = bouncer, blue = crawler, green = jumper
                     val (sprite, glow) = when (enemy.type) {
                         "Bouncer" -> spiderRedSprite to NeonMagenta
                         "Crawler" -> spiderBlueSprite to NeonCyan
+                        "Hunter" -> spiderBlueSprite to Color(0xFFFF2A2A)
                         else -> spiderGreenSprite to NeonGreen   // Jumper
                     }
+                    // Hunters render as a solid-crimson spider silhouette: clearly a
+                    // different, deadlier creature than the full-color spiders.
+                    val tint = if (enemy.type == "Hunter") {
+                        androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFE01E2B),
+                            androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                    } else null
+
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(glow.copy(alpha = 0.4f), Color.Transparent),
@@ -699,17 +711,30 @@ fun Playfield(
                         radius = cellMin * 1.9f,
                         center = center
                     )
+                    // Hunters get a pulsing targeting ring so you can tell one is locked onto you
+                    if (enemy.type == "Hunter") {
+                        val pulse = (0.7f + 0.3f * sin(now / 140.0 + enemy.id).toFloat())
+                        drawCircle(
+                            color = Color(0xFFFF2A2A),
+                            radius = cellMin * (1.4f + 0.2f * pulse),
+                            center = center,
+                            alpha = 0.5f * pulse,
+                            style = Stroke(width = cellMin * 0.12f)
+                        )
+                    }
                     // Jumpers stretch bigger during a fast leap; others gently bob
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
+                    val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
                     val flip = enemy.vx < 0
                     drawSprite(
                         image = sprite,
                         center = center + Offset(0f, bob),
-                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale,
+                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
                         rotationDeg = 0f,
-                        flipX = flip
+                        flipX = flip,
+                        colorFilter = tint
                     )
                 }
 

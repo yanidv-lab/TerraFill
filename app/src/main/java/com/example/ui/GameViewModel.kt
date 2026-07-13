@@ -91,7 +91,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Collect high scores for all levels
-        for (lvl in 1..10) {
+        for (lvl in 1..LevelConfig.TOTAL_LEVELS) {
             viewModelScope.launch {
                 preferences.getBestScore(lvl).collect { score ->
                     val currentMap = _highScores.value.toMutableMap()

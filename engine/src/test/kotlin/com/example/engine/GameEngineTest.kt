@@ -27,6 +27,7 @@ class GameEngineTest {
             bouncerCount = 0,
             crawlerCount = 0,
             jumperCount = 0,
+            hunterCount = 0,
             enemySpeed = 0.0,
             targetPercentage = targetPercentage,
             timeLimitSeconds = timeLimitSeconds
@@ -450,8 +451,54 @@ class GameEngineTest {
     @Test
     fun `enemy count is capped even at very high levels`() {
         val cfg = LevelConfig.getConfig(999)
-        assertTrue(cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount <= 11)
-        assertTrue(cfg.enemySpeed <= 9.0)
+        assertTrue(cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount + cfg.hunterCount <= 12)
+        assertTrue(cfg.enemySpeed <= 9.5)
+    }
+
+    @Test
+    fun `hunters appear only from level 6 and scale up`() {
+        assertEquals(0, LevelConfig.getConfig(5).hunterCount)
+        assertTrue(LevelConfig.getConfig(6).hunterCount >= 1)
+        assertTrue(LevelConfig.getConfig(20).hunterCount >= LevelConfig.getConfig(6).hunterCount)
+    }
+
+    // ---------------------------------------------------------------- hunting spider
+
+    @Test
+    fun `hunter steers toward the player over time`() {
+        // Hunter starts to the right of the player, moving away (left target pull should win)
+        val hunter = Hunter(id = 1, x = 30.0, y = 25.0, vx = 4.0, vy = 0.0)
+        val grid = Array(40) { x ->
+            Array(50) { y ->
+                if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+            }
+        }
+        val playerX = 8.0
+        val playerY = 25.0
+        val startDist = kotlin.math.hypot(hunter.x - playerX, hunter.y - playerY)
+        repeat(120) {
+            hunter.setTarget(playerX, playerY)
+            hunter.update(grid, 0.05)
+            assertTrue(hunter.x in 0.0..40.0 && hunter.y in 0.0..50.0)
+        }
+        val endDist = kotlin.math.hypot(hunter.x - playerX, hunter.y - playerY)
+        assertTrue("hunter should close in: start=$startDist end=$endDist", endDist < startDist)
+    }
+
+    @Test
+    fun `hunter keeps a constant chase speed`() {
+        val hunter = Hunter(id = 2, x = 20.0, y = 20.0, vx = 5.0, vy = 0.0)
+        val grid = Array(40) { x ->
+            Array(50) { y ->
+                if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+            }
+        }
+        repeat(50) {
+            hunter.setTarget(30.0, 30.0)
+            hunter.update(grid, 0.05)
+        }
+        val speed = kotlin.math.hypot(hunter.vx, hunter.vy)
+        assertEquals(5.0, speed, 0.5)
     }
 
     // ---------------------------------------------------------------- jumping spider

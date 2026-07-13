@@ -165,6 +165,19 @@ class GameEngine(
 
             enemies.add(Jumper(idCounter++, rx, ry, vx, vy))
         }
+
+        // Spawn Hunters (chasers) in the lower half so they start away from the
+        // player's top-border spawn, giving the player a moment before the chase.
+        for (i in 0 until levelConfig.hunterCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble((height * 0.5), (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.85
+            val vx = speed * kotlin.math.cos(angle)
+            val vy = speed * kotlin.math.sin(angle)
+
+            enemies.add(Hunter(idCounter++, rx, ry, vx, vy))
+        }
     }
 
     /**
@@ -202,8 +215,11 @@ class GameEngine(
             return
         }
 
-        // 2. Update Enemies
+        // 2. Update Enemies (tell chasers where the player is, then move everyone)
+        val targetX = playerX + 0.5
+        val targetY = playerY + 0.5
         for (enemy in enemies) {
+            enemy.setTarget(targetX, targetY)
             enemy.update(grid, dt)
         }
 
