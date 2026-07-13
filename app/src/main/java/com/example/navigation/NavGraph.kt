@@ -25,6 +25,7 @@ fun NavGraph(
     modifier: Modifier = Modifier
 ) {
     val highestUnlockedLevel by viewModel.highestUnlockedLevel.collectAsStateWithLifecycle()
+    val highScores by viewModel.highScores.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
@@ -35,6 +36,7 @@ fun NavGraph(
         composable(route = Screen.MainMenu.route) {
             MainMenuScreen(
                 highestUnlockedLevel = highestUnlockedLevel,
+                highScores = highScores,
                 onStartGame = { level ->
                     navController.navigate(Screen.Game.createRoute(level))
                 },

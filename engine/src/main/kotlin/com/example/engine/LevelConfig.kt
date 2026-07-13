@@ -19,7 +19,7 @@ data class LevelConfig(
 ) {
     companion object {
         /** Number of levels shown in the campaign / level-select menu. */
-        const val TOTAL_LEVELS = 12
+        const val TOTAL_LEVELS = 10
 
         /** Upper bound on total enemies so the field never gets impossibly crowded. */
         private const val MAX_ENEMIES = 11

@@ -23,6 +23,7 @@ class GamePreferences(private val context: Context) {
 
         private fun percentageKey(level: Int) = doublePreferencesKey("best_percentage_level_$level")
         private fun timeKey(level: Int) = intPreferencesKey("best_time_level_$level")
+        private fun scoreKey(level: Int) = intPreferencesKey("best_score_level_$level")
     }
 
     /**
@@ -47,9 +48,16 @@ class GamePreferences(private val context: Context) {
     }
 
     /**
+     * Retrieves the high score achieved for a specific level.
+     */
+    fun getBestScore(level: Int): Flow<Int> = context.contextDataStore().map { preferences ->
+        preferences[scoreKey(level)] ?: 0
+    }
+
+    /**
      * Saves progress of a level completed by the player. Unlocks the next level.
      */
-    suspend fun saveLevelCompletion(level: Int, percentage: Double, timeRemaining: Int) {
+    suspend fun saveLevelCompletion(level: Int, percentage: Double, timeRemaining: Int, score: Int) {
         context.dataStore.edit { preferences ->
             // Save level scores if they are better than the previous high
             val currentBestPerc = preferences[percentageKey(level)] ?: 0.0
@@ -60,6 +68,11 @@ class GamePreferences(private val context: Context) {
             val currentBestTime = preferences[timeKey(level)] ?: 0
             if (timeRemaining > currentBestTime) {
                 preferences[timeKey(level)] = timeRemaining
+            }
+
+            val currentBestScore = preferences[scoreKey(level)] ?: 0
+            if (score > currentBestScore) {
+                preferences[scoreKey(level)] = score
             }
 
             // Unlock next level if relevant
