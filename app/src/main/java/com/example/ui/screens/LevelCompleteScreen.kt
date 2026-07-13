@@ -217,7 +217,7 @@ fun LevelCompleteScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (levelNumber < com.example.engine.LevelConfig.LEVELS.size) {
+                if (levelNumber < com.example.engine.LevelConfig.TOTAL_LEVELS) {
                     Button(
                         onClick = onNextLevel,
                         colors = ButtonDefaults.buttonColors(

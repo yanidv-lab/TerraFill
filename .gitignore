@@ -17,3 +17,6 @@ local.properties
 .env
 debug.keystore
 engine/build/
+
+# Accidental git-internals backup that must never be committed
+.git_backup/

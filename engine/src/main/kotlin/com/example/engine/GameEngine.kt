@@ -76,6 +76,15 @@ class GameEngine(
     var crashCount = 0
         private set
 
+    /**
+     * Monotonic counter bumped whenever the grid contents change (trail drawn,
+     * region captured, trail cleared on crash). The UI layer uses this to avoid
+     * deep-copying the whole grid on frames where nothing changed - a big win for
+     * smoothness, since most frames only move enemies.
+     */
+    var gridVersion = 0
+        private set
+
     // Enemy state
     val enemies = mutableListOf<Enemy>()
 
@@ -143,6 +152,18 @@ class GameEngine(
             val vy = if (onLeftWall) speed else -speed
 
             enemies.add(Crawler(idCounter++, rx, ry, 0.0, vy))
+        }
+
+        // Spawn Jumpers (jumping spiders) in open space, cruising slower than bouncers.
+        for (i in 0 until levelConfig.jumperCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble(5.0, (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.7
+            val vx = speed * kotlin.math.cos(angle)
+            val vy = speed * kotlin.math.sin(angle)
+
+            enemies.add(Jumper(idCounter++, rx, ry, vx, vy))
         }
     }
 
@@ -299,6 +320,7 @@ class GameEngine(
                     // Record the capture event so the UI can animate the claimed area
                     lastCapturedCells = trailCells + filledCells
                     captureCount++
+                    gridVersion++
 
                     // Scoring
                     score += lastCapturedCells.size * 15
@@ -323,6 +345,7 @@ class GameEngine(
                 isDrawing = true
                 grid[playerX][playerY] = GridCellState.TRAIL
                 trail.add(Pair(playerX, playerY))
+                gridVersion++
             }
             GridCellState.TRAIL -> {
                 // Player intersected their own trail -> Crash!
@@ -355,8 +378,11 @@ class GameEngine(
         moveProgress = 1.0
 
         // Clear the unfinished trail and restore those cells back to EMPTY
-        for (cell in trail) {
-            grid[cell.first][cell.second] = GridCellState.EMPTY
+        if (trail.isNotEmpty()) {
+            for (cell in trail) {
+                grid[cell.first][cell.second] = GridCellState.EMPTY
+            }
+            gridVersion++
         }
         trail.clear()
 

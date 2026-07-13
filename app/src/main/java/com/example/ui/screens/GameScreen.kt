@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -32,8 +31,11 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
@@ -44,6 +46,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
@@ -53,7 +58,6 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlinx.coroutines.delay
 
 /** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
 private const val PLAYER_SPRITE_CELLS = 2.4f
@@ -62,175 +66,40 @@ private const val PLAYER_SPRITE_CELLS = 2.4f
 private const val ENEMY_SPRITE_CELLS = 2.2f
 
 /**
- * Procedurally draws a dynamic, animated neon caterpillar (player) centered at [center].
+ * Draws an [image] centered at [center], scaled so its longer side spans [targetLongSide]
+ * pixels (aspect preserved), optionally rotated and/or horizontally mirrored.
  */
-private fun DrawScope.drawCaterpillar(
+private fun DrawScope.drawSprite(
+    image: ImageBitmap,
     center: Offset,
     targetLongSide: Float,
     rotationDeg: Float,
-    flipX: Boolean,
-    now: Long
+    flipX: Boolean
 ) {
+    val aspect = image.width.toFloat() / image.height.toFloat()
+    val dw: Float
+    val dh: Float
+    if (aspect >= 1f) {
+        dw = targetLongSide; dh = targetLongSide / aspect
+    } else {
+        dw = targetLongSide * aspect; dh = targetLongSide
+    }
     withTransform({
         rotate(rotationDeg, center)
         if (flipX) scale(-1f, 1f, center)
     }) {
-        // Body segments trailing to the right (since head faces left)
-        val bodyYOffset = (sin(now / 150.0) * targetLongSide * 0.05f).toFloat()
-
-        // Segment 4 (Tail)
-        drawCircle(
-            color = NeonGreen.copy(alpha = 0.4f),
-            radius = targetLongSide * 0.08f,
-            center = center + Offset(targetLongSide * 0.65f, -bodyYOffset * 0.5f)
-        )
-        // Segment 3
-        drawCircle(
-            color = NeonGreen.copy(alpha = 0.6f),
-            radius = targetLongSide * 0.13f,
-            center = center + Offset(targetLongSide * 0.5f, bodyYOffset * 0.5f)
-        )
-        // Segment 2
-        drawCircle(
-            color = NeonGreen.copy(alpha = 0.8f),
-            radius = targetLongSide * 0.18f,
-            center = center + Offset(targetLongSide * 0.35f, -bodyYOffset * 0.8f)
-        )
-        // Segment 1
-        drawCircle(
-            color = NeonGreen,
-            radius = targetLongSide * 0.22f,
-            center = center + Offset(targetLongSide * 0.18f, bodyYOffset)
-        )
-        // Head
-        drawCircle(
-            color = Color.White,
-            radius = targetLongSide * 0.26f,
-            center = center
-        )
-        drawCircle(
-            color = NeonGreen,
-            radius = targetLongSide * 0.24f,
-            center = center
-        )
-
-        // Glowing neon eyes
-        drawCircle(
-            color = NeonCyan,
-            radius = targetLongSide * 0.05f,
-            center = center + Offset(-targetLongSide * 0.1f, -targetLongSide * 0.09f)
-        )
-        drawCircle(
-            color = NeonCyan,
-            radius = targetLongSide * 0.05f,
-            center = center + Offset(-targetLongSide * 0.1f, targetLongSide * 0.09f)
-        )
-        // Shiny pupils
-        drawCircle(
-            color = Color.White,
-            radius = targetLongSide * 0.02f,
-            center = center + Offset(-targetLongSide * 0.12f, -targetLongSide * 0.09f)
-        )
-        drawCircle(
-            color = Color.White,
-            radius = targetLongSide * 0.02f,
-            center = center + Offset(-targetLongSide * 0.12f, targetLongSide * 0.09f)
+        drawImage(
+            image = image,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(image.width, image.height),
+            dstOffset = IntOffset(
+                (center.x - dw / 2f).roundToInt(),
+                (center.y - dh / 2f).roundToInt()
+            ),
+            dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
+            filterQuality = FilterQuality.High
         )
     }
-}
-
-/**
- * Procedurally draws an animated neon scuttling spider (enemy) centered at [center].
- */
-private fun DrawScope.drawSpider(
-    center: Offset,
-    targetLongSide: Float,
-    isBouncer: Boolean,
-    flipX: Boolean,
-    now: Long
-) {
-    val themeColor = if (isBouncer) NeonMagenta else NeonCyan
-
-    // Scuttling legs
-    val legSegments = 4
-    for (i in 0 until legSegments) {
-        val legProgress = (now / 100.0 + i * (Math.PI / legSegments)).toFloat()
-        val scuttleLeft = (sin(legProgress) * targetLongSide * 0.14f).toFloat()
-        val scuttleRight = (cos(legProgress) * targetLongSide * 0.14f).toFloat()
-
-        // Left legs
-        val pathLeft = Path().apply {
-            moveTo(center.x, center.y)
-            val kneeX = center.x - targetLongSide * 0.35f
-            val kneeY = center.y - targetLongSide * 0.25f + (i - 1.5f) * targetLongSide * 0.15f + scuttleLeft
-            val footX = center.x - targetLongSide * 0.55f
-            val footY = center.y + targetLongSide * 0.2f + (i - 1.5f) * targetLongSide * 0.1f + scuttleLeft * 0.5f
-            lineTo(kneeX, kneeY)
-            lineTo(footX, footY)
-        }
-        drawPath(
-            path = pathLeft,
-            color = themeColor,
-            style = Stroke(width = targetLongSide * 0.05f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-
-        // Right legs
-        val pathRight = Path().apply {
-            moveTo(center.x, center.y)
-            val kneeX = center.x + targetLongSide * 0.35f
-            val kneeY = center.y - targetLongSide * 0.25f + (i - 1.5f) * targetLongSide * 0.15f + scuttleRight
-            val footX = center.x + targetLongSide * 0.55f
-            val footY = center.y + targetLongSide * 0.2f + (i - 1.5f) * targetLongSide * 0.1f + scuttleRight * 0.5f
-            lineTo(kneeX, kneeY)
-            lineTo(footX, footY)
-        }
-        drawPath(
-            path = pathRight,
-            color = themeColor,
-            style = Stroke(width = targetLongSide * 0.05f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-    }
-
-    // Spider Body
-    drawCircle(
-        color = themeColor,
-        radius = targetLongSide * 0.24f,
-        center = center
-    )
-    // Inner Glow
-    drawCircle(
-        color = Color.White.copy(alpha = 0.9f),
-        radius = targetLongSide * 0.14f,
-        center = center
-    )
-    drawCircle(
-        color = themeColor,
-        radius = targetLongSide * 0.1f,
-        center = center
-    )
-
-    // Eyes
-    val eyeOffsetX = if (flipX) targetLongSide * 0.08f else -targetLongSide * 0.08f
-    drawCircle(
-        color = Color.White,
-        radius = targetLongSide * 0.04f,
-        center = center + Offset(eyeOffsetX, -targetLongSide * 0.05f)
-    )
-    drawCircle(
-        color = Color.White,
-        radius = targetLongSide * 0.04f,
-        center = center + Offset(eyeOffsetX, targetLongSide * 0.05f)
-    )
-    drawCircle(
-        color = themeColor,
-        radius = targetLongSide * 0.02f,
-        center = center + Offset(eyeOffsetX * 1.1f, -targetLongSide * 0.05f)
-    )
-    drawCircle(
-        color = themeColor,
-        radius = targetLongSide * 0.02f,
-        center = center + Offset(eyeOffsetX * 1.1f, targetLongSide * 0.05f)
-    )
 }
 
 /**
@@ -244,31 +113,9 @@ fun GameScreen(
     onTick: (Double) -> Unit,
     onPauseToggle: () -> Unit,
     onQuitGame: () -> Unit,
+    onToggleSound: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shakeOffsetX = remember { Animatable(0f) }
-    val shakeOffsetY = remember { Animatable(0f) }
-
-    LaunchedEffect(state.crashCount) {
-        if (state.crashCount > 0) {
-            val duration = 400 // ms
-            val startTime = System.currentTimeMillis()
-            while (System.currentTimeMillis() - startTime < duration) {
-                val elapsed = System.currentTimeMillis() - startTime
-                val progress = elapsed.toFloat() / duration
-                val decay = 1f - progress
-                val amp = 12f * decay
-                val x = (sin(elapsed / 12.0) * amp).toFloat()
-                val y = (cos(elapsed / 15.0) * amp).toFloat()
-                shakeOffsetX.snapTo(x)
-                shakeOffsetY.snapTo(y)
-                delay(10)
-            }
-            shakeOffsetX.snapTo(0f)
-            shakeOffsetY.snapTo(0f)
-        }
-    }
-
     // 1. Frame-synced Game Loop driving the GameEngine simulation
     LaunchedEffect(state.status) {
         if (state.status == GameStateStatus.RUNNING) {
@@ -284,31 +131,56 @@ fun GameScreen(
         }
     }
 
+    // Keep the screen awake while playing
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+
+    // A short buzz on every crash
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(state.crashCount) {
+        if (state.crashCount > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    // Auto-pause the game (and its music) when the app goes to the background
+    val currentStatus by rememberUpdatedState(state.status)
+    val pauseNow by rememberUpdatedState(onPauseToggle)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && currentStatus == GameStateStatus.RUNNING) {
+                pauseNow()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Layout Root
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Cosmic space backdrop fills the whole screen (behind the status bar too)
+        // Jungle backdrop fills the whole screen (behind the status bar too)
+        Image(
+            painter = painterResource(R.drawable.bg_jungle),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        // Dark scrim so the HUD text stays readable and characters pop
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF070714), // Deep outer space dark
-                            Color(0xFF100E26), // Cosmic dark indigo
-                            Color(0xFF070714)
-                        )
-                    )
-                )
+                .background(Color.Black.copy(alpha = 0.28f))
         )
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(12.dp)
-                .offset { IntOffset(shakeOffsetX.value.roundToInt(), shakeOffsetY.value.roundToInt()) },
+                .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -383,7 +255,27 @@ fun GameScreen(
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace
                             )
-                            
+
+                            // Sound on/off toggle
+                            OutlinedButton(
+                                onClick = onToggleSound,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonYellow),
+                                border = BorderStroke(1.5.dp, NeonYellow),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    if (state.soundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                    contentDescription = "Toggle sound",
+                                    tint = NeonYellow
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    if (state.soundEnabled) "SOUND: ON" else "SOUND: OFF",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Button(
                                     onClick = onPauseToggle,
@@ -601,11 +493,9 @@ fun Playfield(
     // frame, so effect animations (capture flash, crash shake, enemy pulsing) keep
     // running even while the simulation itself is not ticking (e.g. crash reset).
     var frameTimeMillis by remember { mutableStateOf(0L) }
-    LaunchedEffect(state.status) {
-        if (state.status != GameStateStatus.PAUSED) {
-            while (true) {
-                withFrameNanos { frameTimeMillis = it / 1_000_000 }
-            }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos { frameTimeMillis = it / 1_000_000 }
         }
     }
 
@@ -627,7 +517,11 @@ fun Playfield(
         }
     }
 
-
+    // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and reused.
+    val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
+    val spiderRedSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_red)
+    val spiderBlueSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_blue)
+    val spiderGreenSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
 
     Box(
         modifier = Modifier
@@ -790,9 +684,12 @@ fun Playfield(
                         ((enemy.x + 0.5) * cellW).toFloat(),
                         ((enemy.y + 0.5) * cellH).toFloat()
                     )
-                    val isBouncer = enemy.type == "Bouncer"
-                    // A soft menacing glow so enemies pop against the dark field
-                    val glow = if (isBouncer) NeonMagenta else NeonCyan
+                    // Sprite + glow by enemy type: red = bouncer, blue = crawler, green = jumper
+                    val (sprite, glow) = when (enemy.type) {
+                        "Bouncer" -> spiderRedSprite to NeonMagenta
+                        "Crawler" -> spiderBlueSprite to NeonCyan
+                        else -> spiderGreenSprite to NeonGreen   // Jumper
+                    }
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(glow.copy(alpha = 0.4f), Color.Transparent),
@@ -802,15 +699,17 @@ fun Playfield(
                         radius = cellMin * 1.9f,
                         center = center
                     )
+                    // Jumpers stretch bigger during a fast leap; others gently bob
+                    val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
+                    val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
-                    // Face travel direction horizontally; flip when moving left
                     val flip = enemy.vx < 0
-                    drawSpider(
+                    drawSprite(
+                        image = sprite,
                         center = center + Offset(0f, bob),
-                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS,
-                        isBouncer = isBouncer,
-                        flipX = flip,
-                        now = now
+                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale,
+                        rotationDeg = 0f,
+                        flipX = flip
                     )
                 }
 
@@ -840,12 +739,12 @@ fun Playfield(
                     }
 
                     drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
-                    drawCaterpillar(
+                    drawSprite(
+                        image = caterpillarSprite,
                         center = headCenter,
                         targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
                         rotationDeg = rotationDeg,
-                        flipX = flipX,
-                        now = now
+                        flipX = flipX
                     )
                 }
             }

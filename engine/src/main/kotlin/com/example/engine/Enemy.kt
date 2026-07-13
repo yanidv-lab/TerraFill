@@ -1,9 +1,49 @@
 package com.example.engine
 
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.random.Random
+
+/**
+ * Moves an enemy along its velocity, bouncing off the field edges and CAPTURED
+ * cells. Movement is broken into sub-steps no larger than half a cell so fast
+ * enemies (e.g. a jumping spider mid-leap) can't tunnel through thin walls.
+ * Mutates the enemy's x/y/vx/vy in place.
+ */
+private fun Enemy.stepBounce(grid: Array<Array<GridCellState>>, dt: Double) {
+    val width = grid.size
+    val height = if (width > 0) grid[0].size else 0
+    if (width == 0 || height == 0) return
+
+    val distance = hypot(vx, vy) * dt
+    val steps = ceil(distance / 0.5).toInt().coerceAtLeast(1)
+    val sdt = dt / steps
+
+    repeat(steps) {
+        val nextX = x + vx * sdt
+        val gridX = floor(nextX).toInt().coerceIn(0, width - 1)
+        val currentGridY = floor(y).toInt().coerceIn(0, height - 1)
+        if (nextX < 0 || nextX >= width || grid[gridX][currentGridY] == GridCellState.CAPTURED) {
+            vx = -vx
+        } else {
+            x = nextX
+        }
+
+        val nextY = y + vy * sdt
+        val currentGridX = floor(x).toInt().coerceIn(0, width - 1)
+        val gridY = floor(nextY).toInt().coerceIn(0, height - 1)
+        if (nextY < 0 || nextY >= height || grid[currentGridX][gridY] == GridCellState.CAPTURED) {
+            vy = -vy
+        } else {
+            y = nextY
+        }
+    }
+}
 
 /**
  * Base representation of enemies in TerraFill.
@@ -43,35 +83,80 @@ class Bouncer(
     override val type: String = "Bouncer"
 
     override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
-        val width = grid.size
-        val height = if (width > 0) grid[0].size else 0
-        if (width == 0 || height == 0) return
-
-        // 1. Predict and update X movement
-        val nextX = x + vx * dt
-        val gridX = floor(nextX).toInt().coerceIn(0, width - 1)
-        val currentGridY = floor(y).toInt().coerceIn(0, height - 1)
-
-        if (grid[gridX][currentGridY] == GridCellState.CAPTURED || nextX < 0 || nextX >= width) {
-            vx = -vx // Reverse horizontal direction
-        } else {
-            x = nextX
-        }
-
-        // 2. Predict and update Y movement
-        val nextY = y + vy * dt
-        val currentGridX = floor(x).toInt().coerceIn(0, width - 1)
-        val gridY = floor(nextY).toInt().coerceIn(0, height - 1)
-
-        if (grid[currentGridX][gridY] == GridCellState.CAPTURED || nextY < 0 || nextY >= height) {
-            vy = -vy // Reverse vertical direction
-        } else {
-            y = nextY
-        }
+        stepBounce(grid, dt)
     }
 
     override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
         return Bouncer(id, x, y, vx, vy, radius)
+    }
+}
+
+/**
+ * Jumper enemy - a jumping spider. It drifts slowly like a bouncer, then
+ * periodically coils and launches a fast leap in a new direction before settling
+ * again. The unpredictable bursts make it much harder to read than a bouncer.
+ *
+ * Behaviour is deterministic per enemy (seeded by [id]) so it is fully testable
+ * and identical every run of a given level.
+ */
+class Jumper(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.42
+) : Enemy() {
+    override val type: String = "Jumper"
+
+    private val rng = Random(id.toLong() * 2654435761L)
+    private val cruiseSpeed = hypot(vx, vy).coerceAtLeast(1.0)
+
+    /** Seconds until the next leap while cruising. */
+    private var cooldown = 1.2 + rng.nextDouble() * 1.6
+
+    /** Seconds of leap remaining; > 0 means mid-jump (fast). */
+    private var leapRemaining = 0.0
+
+    /** Fraction in [0,1] of the current leap, exposed so the UI can animate the pounce. */
+    var leapProgress = 0.0
+        private set
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        if (leapRemaining > 0.0) {
+            leapRemaining -= dt
+            leapProgress = (1.0 - (leapRemaining / LEAP_DURATION)).coerceIn(0.0, 1.0)
+            if (leapRemaining <= 0.0) {
+                // Land: settle back to a gentle drift in a fresh direction.
+                aim(cruiseSpeed)
+                cooldown = 1.4 + rng.nextDouble() * 1.8
+                leapProgress = 0.0
+            }
+        } else {
+            cooldown -= dt
+            if (cooldown <= 0.0) {
+                // Coil and pounce: launch a fast leap in a new random direction.
+                aim(cruiseSpeed * LEAP_SPEED_FACTOR)
+                leapRemaining = LEAP_DURATION
+                leapProgress = 0.0
+            }
+        }
+        stepBounce(grid, dt)
+    }
+
+    private fun aim(speed: Double) {
+        val angle = rng.nextDouble(0.0, 2.0 * Math.PI)
+        vx = cos(angle) * speed
+        vy = sin(angle) * speed
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
+        return Jumper(id, x, y, vx, vy, radius)
+    }
+
+    private companion object {
+        const val LEAP_DURATION = 0.32          // seconds of fast flight
+        const val LEAP_SPEED_FACTOR = 3.2       // leap speed relative to cruise
     }
 }
 

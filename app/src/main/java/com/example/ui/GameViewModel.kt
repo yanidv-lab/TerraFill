@@ -46,7 +46,8 @@ data class GameUiState(
     val capturedPercentage: Double = 0.0,
     val status: GameStateStatus = GameStateStatus.RUNNING,
     val targetPercentage: Double = 75.0,
-    val highestUnlockedLevel: Int = 1
+    val highestUnlockedLevel: Int = 1,
+    val soundEnabled: Boolean = true
 )
 
 /**
@@ -55,10 +56,21 @@ data class GameUiState(
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = GamePreferences(application)
-    
+    private val sound = com.example.audio.SoundManager(application)
+
     // Mutable state for the currently active game
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+
+    // Event edges used to fire one-shot sounds
+    private var lastCaptureCount = 0
+    private var lastCrashCount = 0
+    private var lastStatus = GameStateStatus.RUNNING
+
+    // Grid snapshot cache: only rebuilt when the engine's grid actually changes,
+    // so most frames (which only move enemies) allocate nothing for the grid.
+    private var cachedGrid: Array<Array<GridCellState>> = Array(0) { emptyArray() }
+    private var cachedGridVersion = -1
 
     // Observe progress
     val highestUnlockedLevel: StateFlow<Int> = preferences.highestUnlockedLevel
@@ -97,6 +109,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val config = LevelConfig.getConfig(levelNumber)
         val newEngine = GameEngine(config)
         engine = newEngine
+        lastCaptureCount = 0
+        lastCrashCount = 0
+        lastStatus = GameStateStatus.RUNNING
+        cachedGridVersion = -1
+        sound.startMusic()
         updateUiStateFromEngine(newEngine)
     }
 
@@ -108,6 +125,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         
         // Tick game simulation
         activeEngine.tick(dt)
+
+        // Fire one-shot sounds on event edges
+        if (activeEngine.captureCount > lastCaptureCount) {
+            lastCaptureCount = activeEngine.captureCount
+            sound.capture()
+        }
+        if (activeEngine.crashCount > lastCrashCount) {
+            lastCrashCount = activeEngine.crashCount
+            sound.crash()
+        }
+        if (activeEngine.status != lastStatus) {
+            when (activeEngine.status) {
+                GameStateStatus.LEVEL_COMPLETE -> { sound.levelComplete(); sound.pauseMusic() }
+                GameStateStatus.GAME_OVER -> { sound.gameOver(); sound.stopMusic() }
+                else -> {}
+            }
+            lastStatus = activeEngine.status
+        }
 
         // Handle short flash/reset sequence if player is in reset mode
         if (activeEngine.status == GameStateStatus.CRASH_RESET) {
@@ -147,7 +182,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun togglePause() {
         engine?.togglePause()
-        engine?.let { updateUiStateFromEngine(it) }
+        engine?.let {
+            if (it.status == GameStateStatus.PAUSED) sound.pauseMusic() else sound.resumeMusic()
+            updateUiStateFromEngine(it)
+        }
+    }
+
+    /** Pauses background music (e.g. when the app goes to the background). */
+    fun pauseAudio() = sound.pauseMusic()
+
+    /** Resumes background music if the game is currently running. */
+    fun resumeAudio() {
+        if (engine?.status == GameStateStatus.RUNNING) sound.resumeMusic()
+    }
+
+    /** Mutes/unmutes all game audio and reflects the new state in the UI. */
+    fun toggleSound() {
+        val enabled = sound.toggleAll()
+        _uiState.value = _uiState.value.copy(soundEnabled = enabled)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        sound.release()
     }
 
     /**
@@ -164,11 +221,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Copies parameters of the simulation engine to state flow.
      */
     private fun updateUiStateFromEngine(activeEngine: GameEngine) {
-        // Deep copy the grid state for reliable recomposition triggering
-        val gridCopy = Array(activeEngine.width) { x ->
-            Array(activeEngine.height) { y ->
-                activeEngine.grid[x][y]
+        // Rebuild the grid snapshot only when the engine reports it changed; otherwise
+        // reuse the cached array so idle/enemy-only frames allocate nothing for the grid.
+        if (activeEngine.gridVersion != cachedGridVersion) {
+            cachedGrid = Array(activeEngine.width) { x ->
+                Array(activeEngine.height) { y ->
+                    activeEngine.grid[x][y]
+                }
             }
+            cachedGridVersion = activeEngine.gridVersion
         }
 
         // Map enemies list (creates a new list so recomposition detects changes)
@@ -176,7 +237,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         _uiState.value = _uiState.value.copy(
             levelNumber = activeEngine.levelConfig.levelNumber,
-            grid = gridCopy,
+            grid = cachedGrid,
             gridWidth = activeEngine.width,
             gridHeight = activeEngine.height,
             playerX = activeEngine.playerX,
