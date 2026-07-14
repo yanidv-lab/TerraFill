@@ -20,3 +20,6 @@ engine/build/
 
 # Accidental git-internals backup that must never be committed
 .git_backup/
+.git_corrupt_bak/
+.build-outputs/
+debug.keystore.base64

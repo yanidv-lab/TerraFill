@@ -1,0 +1,13 @@
+# TerraFill Retro Sound Assets Metadata
+# This folder is designated for custom sound files loaded dynamically at runtime via AssetManager.
+
+[sound_effects]
+sfx_player_move = sfx_tap.wav
+sfx_trail_drawing = sfx_trail.wav
+sfx_collision = sfx_crash.wav
+sfx_level_complete = sfx_level_complete.wav
+sfx_game_over = sfx_game_over.wav
+sfx_powerup = sfx_powerup.wav
+
+[ambient_music]
+music_background_loop = music_loop.wav

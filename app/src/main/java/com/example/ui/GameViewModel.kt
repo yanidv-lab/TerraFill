@@ -141,8 +141,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun tick(dt: Double) {
         val activeEngine = engine ?: return
         
+        val oldPlayerX = activeEngine.playerX
+        val oldPlayerY = activeEngine.playerY
+
         // Tick game simulation
         activeEngine.tick(dt)
+
+        // Play subtle retro blip when the player moves to a new grid cell
+        if (activeEngine.playerX != oldPlayerX || activeEngine.playerY != oldPlayerY) {
+            if (activeEngine.isDrawing) {
+                sound.drawTrail()
+            } else {
+                sound.move()
+            }
+        }
 
         // Fire one-shot sounds on event edges
         if (activeEngine.captureCount > lastCaptureCount) {
@@ -196,7 +208,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Changes movement direction of the cursor.
      */
     fun setDirection(direction: Direction) {
+        val oldDir = engine?.playerDirection ?: Direction.NONE
         engine?.setDirection(direction)
+        val newDir = engine?.playerDirection ?: Direction.NONE
+        if (oldDir != newDir && newDir != Direction.NONE) {
+            sound.tap()
+        }
         engine?.let { updateUiStateFromEngine(it) }
     }
 

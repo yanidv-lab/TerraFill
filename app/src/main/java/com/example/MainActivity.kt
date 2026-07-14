@@ -19,24 +19,37 @@ import com.example.ui.theme.MyApplicationTheme
  * Initializes edge-to-edge drawings, sets up the theme, and launches the NavGraph.
  */
 class MainActivity : ComponentActivity() {
+    private var gameViewModel: GameViewModel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
                 val navController = rememberNavController()
-                val gameViewModel: GameViewModel = viewModel()
+                val vm: GameViewModel = viewModel()
+                gameViewModel = vm
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize()
                 ) { innerPadding ->
                     NavGraph(
                         navController = navController,
-                        viewModel = gameViewModel,
+                        viewModel = vm,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        gameViewModel?.pauseAudio()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        gameViewModel?.resumeAudio()
     }
 }
