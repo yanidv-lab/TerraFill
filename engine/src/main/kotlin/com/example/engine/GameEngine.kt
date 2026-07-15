@@ -212,7 +212,7 @@ class GameEngine(
             val vx = speed * kotlin.math.cos(angle)
             val vy = speed * kotlin.math.sin(angle)
 
-            enemies.add(Jumper(idCounter++, rx, ry, vx, vy))
+            enemies.add(Jumper(idCounter++, rx, ry, vx, vy, aggression = levelConfig.enemyAggression))
         }
 
         // Spawn Hunters (chasers) in the lower half so they start away from the
@@ -225,7 +225,19 @@ class GameEngine(
             val vx = speed * kotlin.math.cos(angle)
             val vy = speed * kotlin.math.sin(angle)
 
-            enemies.add(Hunter(idCounter++, rx, ry, vx, vy))
+            enemies.add(Hunter(idCounter++, rx, ry, vx, vy, aggression = levelConfig.enemyAggression))
+        }
+
+        // Spawn Speeders (fast spiders) in open space, moving much faster than bouncers.
+        for (i in 0 until levelConfig.speederCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble(5.0, (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 1.8
+            val vx = speed * kotlin.math.cos(angle)
+            val vy = speed * kotlin.math.sin(angle)
+
+            enemies.add(Speeder(idCounter++, rx, ry, vx, vy))
         }
     }
 

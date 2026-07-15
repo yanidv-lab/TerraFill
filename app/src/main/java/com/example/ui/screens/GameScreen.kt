@@ -61,10 +61,50 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
-private const val PLAYER_SPRITE_CELLS = 2.4f
+private const val PLAYER_SPRITE_CELLS = 2.9f
 
 /** How many grid cells wide the enemy spider sprite is drawn. */
-private const val ENEMY_SPRITE_CELLS = 2.2f
+private const val ENEMY_SPRITE_CELLS = 2.7f
+
+/**
+ * Draws an [image] centered at [center], scaled so its longer side spans [targetLongSide]
+ * pixels (aspect preserved), optionally rotated and/or horizontally mirrored, with
+ * high-quality filtering so the art stays crisp.
+ */
+private fun DrawScope.drawSprite(
+    image: ImageBitmap,
+    center: Offset,
+    targetLongSide: Float,
+    rotationDeg: Float,
+    flipX: Boolean,
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null
+) {
+    val aspect = image.width.toFloat() / image.height.toFloat()
+    val dw: Float
+    val dh: Float
+    if (aspect >= 1f) {
+        dw = targetLongSide; dh = targetLongSide / aspect
+    } else {
+        dw = targetLongSide * aspect; dh = targetLongSide
+    }
+    withTransform({
+        rotate(rotationDeg, center)
+        if (flipX) scale(-1f, 1f, center)
+    }) {
+        drawImage(
+            image = image,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(image.width, image.height),
+            dstOffset = IntOffset(
+                (center.x - dw / 2f).roundToInt(),
+                (center.y - dh / 2f).roundToInt()
+            ),
+            dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
+            filterQuality = FilterQuality.High,
+            colorFilter = colorFilter
+        )
+    }
+}
 
 /** A short-lived visual particle. Position/velocity are in grid-cell units. */
 private class GameParticle(
@@ -127,259 +167,6 @@ private fun DrawScope.drawPowerUp(center: Offset, cellMin: Float, type: String, 
     }
 }
 
-/**
- * Draws a cute, high-tech neon caterpillar segment by segment.
- */
-private fun DrawScope.drawProceduralCaterpillar(
-    center: Offset,
-    targetLongSide: Float,
-    rotationDeg: Float,
-    flipX: Boolean,
-    now: Long
-) {
-    val size = targetLongSide
-    withTransform({
-        rotate(rotationDeg, center)
-        if (flipX) scale(-1f, 1f, center)
-    }) {
-        val segmentCount = 5
-        val baseRadius = size * 0.18f
-        
-        // Draw from tail to head (so head is drawn on top)
-        for (i in (segmentCount - 1) downTo 0) {
-            val fraction = i.toFloat() / (segmentCount - 1)
-            val xOffset = -size * 0.35f + fraction * (size * 0.7f)
-            val yWiggle = sin(now / 150.0 + i * 1.2).toFloat() * (size * 0.05f)
-            val segmentCenter = center + Offset(xOffset, yWiggle)
-            val radius = baseRadius * (1f - fraction * 0.35f)
-            
-            // Tiny legs for body segments
-            if (i > 0) {
-                val footLength = radius * 0.6f
-                drawLine(
-                    color = NeonYellow,
-                    start = segmentCenter + Offset(-radius * 0.3f, radius * 0.5f),
-                    end = segmentCenter + Offset(-radius * 0.5f, radius * 0.9f + footLength * 0.3f),
-                    strokeWidth = size * 0.04f,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = NeonYellow,
-                    start = segmentCenter + Offset(radius * 0.3f, radius * 0.5f),
-                    end = segmentCenter + Offset(radius * 0.5f, radius * 0.9f + footLength * 0.3f),
-                    strokeWidth = size * 0.04f,
-                    cap = StrokeCap.Round
-                )
-            }
-            
-            val segmentColor = if (i == 0) {
-                Color(0xFF39FF14) // Neon green head
-            } else if (i % 2 == 0) {
-                Color(0xFF22DD22)
-            } else {
-                Color(0xFF76FF03) // Yellow-green
-            }
-            
-            // Soft neon glow
-            drawCircle(
-                color = segmentColor.copy(alpha = 0.25f),
-                radius = radius * 1.4f,
-                center = segmentCenter
-            )
-            
-            // Core segment
-            drawCircle(
-                color = segmentColor,
-                radius = radius,
-                center = segmentCenter
-            )
-            
-            // Shiny highlight
-            drawCircle(
-                color = Color.White.copy(alpha = 0.4f),
-                radius = radius * 0.4f,
-                center = segmentCenter + Offset(-radius * 0.3f, -radius * 0.3f)
-            )
-            
-            // Head details
-            if (i == 0) {
-                val eyeLeftCenter = segmentCenter + Offset(-radius * 0.4f, -radius * 0.15f)
-                val eyeRadius = radius * 0.28f
-                
-                drawCircle(
-                    color = Color.White,
-                    radius = eyeRadius,
-                    center = eyeLeftCenter
-                )
-                drawCircle(
-                    color = Color.Black,
-                    radius = eyeRadius * 0.6f,
-                    center = eyeLeftCenter + Offset(-eyeRadius * 0.1f, 0f)
-                )
-                drawCircle(
-                    color = Color.White,
-                    radius = eyeRadius * 0.2f,
-                    center = eyeLeftCenter + Offset(-eyeRadius * 0.3f, -eyeRadius * 0.2f)
-                )
-                
-                // Antennae
-                val antStart = segmentCenter + Offset(-radius * 0.2f, -radius * 0.8f)
-                val antEnd = segmentCenter + Offset(-radius * 0.6f, -radius * 1.5f)
-                drawLine(
-                    color = NeonYellow,
-                    start = antStart,
-                    end = antEnd,
-                    strokeWidth = size * 0.04f,
-                    cap = StrokeCap.Round
-                )
-                drawCircle(
-                    color = NeonMagenta,
-                    radius = radius * 0.3f,
-                    center = antEnd
-                )
-            }
-        }
-    }
-}
-
-/**
- * Draws a creepy-cool animated cyberpunk spider with 8 wiggling joints.
- */
-private fun DrawScope.drawProceduralSpider(
-    center: Offset,
-    targetLongSide: Float,
-    baseColor: Color,
-    flipX: Boolean,
-    now: Long,
-    enemyId: Int,
-    isHunter: Boolean = false
-) {
-    val size = targetLongSide
-    withTransform({
-        if (flipX) scale(-1f, 1f, center)
-    }) {
-        val bodyRadiusX = size * 0.25f
-        val bodyRadiusY = size * 0.22f
-        val bodyCenter = center
-        
-        val headCenter = center + Offset(-size * 0.22f, 0f)
-        val headRadius = size * 0.15f
-        
-        val legColors = if (isHunter) Color(0xFFFF2A2A) else baseColor
-        val legStrokeWidth = size * 0.05f
-        
-        // Draw 8 creepy wiggling legs
-        for (legIdx in 0 until 8) {
-            val isLeftLeg = legIdx < 4
-            val localIdx = if (isLeftLeg) legIdx else legIdx - 4
-            
-            val spreadFactor = localIdx.toFloat() / 3f
-            val angleDeg = if (isLeftLeg) {
-                135f + spreadFactor * 100f
-            } else {
-                45f - spreadFactor * 100f
-            }
-            
-            val phase = now / 80.0 + legIdx * 1.5 + enemyId
-            val legWiggle = sin(phase).toFloat() * 12f
-            val finalAngleRad = Math.toRadians((angleDeg + legWiggle).toDouble())
-            
-            val kneeDistance = size * 0.45f
-            val kneeOffset = Offset(
-                (cos(finalAngleRad) * kneeDistance).toFloat(),
-                (sin(finalAngleRad) * kneeDistance).toFloat()
-            )
-            val joint1 = bodyCenter + kneeOffset
-            
-            val tipOffset = Offset(
-                kneeOffset.x + (if (isLeftLeg) -1f else 1f) * size * 0.12f,
-                kneeOffset.y + size * 0.32f + cos(phase).toFloat() * size * 0.05f
-            )
-            val joint2 = bodyCenter + tipOffset
-            
-            drawLine(
-                color = legColors,
-                start = bodyCenter,
-                end = joint1,
-                strokeWidth = legStrokeWidth,
-                cap = StrokeCap.Round
-            )
-            
-            drawLine(
-                color = legColors,
-                start = joint1,
-                end = joint2,
-                strokeWidth = legStrokeWidth,
-                cap = StrokeCap.Round
-            )
-            
-            drawCircle(
-                color = Color.White.copy(alpha = 0.8f),
-                radius = legStrokeWidth * 0.6f,
-                center = joint1
-            )
-        }
-        
-        // Neon body glow
-        drawCircle(
-            color = legColors.copy(alpha = 0.25f),
-            radius = bodyRadiusX * 1.6f,
-            center = bodyCenter
-        )
-        
-        drawCircle(
-            color = legColors,
-            radius = bodyRadiusX,
-            center = bodyCenter
-        )
-        
-        drawCircle(
-            color = legColors,
-            radius = headRadius,
-            center = headCenter
-        )
-        
-        if (isHunter) {
-            val pWidth = size * 0.06f
-            drawLine(
-                color = Color.White,
-                start = bodyCenter + Offset(-size * 0.1f, -size * 0.1f),
-                end = bodyCenter + Offset(size * 0.1f, size * 0.1f),
-                strokeWidth = pWidth,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = Color.White,
-                start = bodyCenter + Offset(-size * 0.1f, size * 0.1f),
-                end = bodyCenter + Offset(size * 0.1f, -size * 0.1f),
-                strokeWidth = pWidth,
-                cap = StrokeCap.Round
-            )
-        } else {
-            drawCircle(
-                color = Color.White.copy(alpha = 0.7f),
-                radius = bodyRadiusX * 0.5f,
-                center = bodyCenter,
-                style = Stroke(width = size * 0.04f)
-            )
-        }
-        
-        // Glowing eyes
-        val eyeRadius = headRadius * 0.22f
-        val eyeColor = if (isHunter) Color.White else NeonYellow
-        
-        drawCircle(
-            color = eyeColor,
-            radius = eyeRadius,
-            center = headCenter + Offset(-headRadius * 0.4f, -headRadius * 0.3f)
-        )
-        drawCircle(
-            color = eyeColor,
-            radius = eyeRadius,
-            center = headCenter + Offset(-headRadius * 0.4f, headRadius * 0.3f)
-        )
-    }
-}
 
 /**
  * Interactive Playfield Screen for TerraFill.
@@ -447,51 +234,18 @@ fun GameScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Jungle backdrop: beautiful procedurally drawn lush green/dark forest gradient with ambient lighting
+        // Jungle backdrop: the real jungle artwork, filling the whole screen
+        Image(
+            painter = painterResource(R.drawable.bg_jungle),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        // Dark scrim so the HUD text stays readable and characters pop over the busy jungle
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF07210B), // Deep jungle moss green
-                            Color(0xFF031407), // Dark forest shade
-                            Color(0xFF010603)  // Near-black organic shadows
-                        )
-                    )
-                )
-        ) {
-            // Draw abstract ambient sun rays and canopy dappled light
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                // Subtle sun rays from top-left
-                val rayBrush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0x1F52C467), // Glowing light green ray
-                        Color.Transparent
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width * 0.8f, size.height * 0.4f)
-                )
-                drawRect(brush = rayBrush)
-
-                // Ambient glow in center-bottom
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x14408B51), // Soft organic glow
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.5f, size.height * 0.7f),
-                        radius = size.width * 0.6f
-                    )
-                )
-            }
-        }
-        // Dark scrim so the HUD text stays readable and characters pop
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f))
+                .background(Color.Black.copy(alpha = 0.3f))
         )
 
         Column(
@@ -887,6 +641,12 @@ fun Playfield(
         }
     }
 
+    // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and reused.
+    val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
+    val spiderRedSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_red)
+    val spiderBlueSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_blue)
+    val spiderGreenSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1075,6 +835,7 @@ fun Playfield(
                         "Bouncer" -> NeonMagenta
                         "Crawler" -> NeonCyan
                         "Hunter" -> Color(0xFFFF2A2A)
+                        "Speeder" -> Color(0xFFFFD500)
                         else -> NeonGreen   // Jumper
                     }
 
@@ -1097,19 +858,53 @@ fun Playfield(
                             style = Stroke(width = cellMin * 0.12f)
                         )
                     }
+                    // Speeders leave motion streaks trailing opposite their velocity
+                    if (enemy.type == "Speeder") {
+                        val vmag = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
+                        if (vmag > 0.01f) {
+                            val ux = (-enemy.vx / vmag).toFloat()
+                            val uy = (-enemy.vy / vmag).toFloat()
+                            for (k in 1..3) {
+                                val off = cellMin * 0.5f * k
+                                drawCircle(
+                                    color = Color(0xFFFFD500),
+                                    radius = cellMin * (0.5f - 0.12f * k),
+                                    center = Offset(center.x + ux * off, center.y + uy * off),
+                                    alpha = 0.35f / k
+                                )
+                            }
+                        }
+                    }
+                    // Sprite per type: red = bouncer, blue = crawler, green = jumper,
+                    // crimson-tinted silhouette = hunter, gold-tinted = speeder
+                    val sprite = when (enemy.type) {
+                        "Bouncer" -> spiderRedSprite
+                        "Crawler" -> spiderBlueSprite
+                        "Hunter" -> spiderBlueSprite
+                        "Speeder" -> spiderRedSprite
+                        else -> spiderGreenSprite   // Jumper
+                    }
+                    val tint = when (enemy.type) {
+                        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        else -> null
+                    }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
                     val flip = enemy.vx < 0
-                    drawProceduralSpider(
+                    drawSprite(
+                        image = sprite,
                         center = center + Offset(0f, bob),
                         targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
-                        baseColor = glow,
+                        rotationDeg = 0f,
                         flipX = flip,
-                        now = now,
-                        enemyId = enemy.id,
-                        isHunter = (enemy.type == "Hunter")
+                        colorFilter = tint
                     )
                 }
 
@@ -1136,13 +931,13 @@ fun Playfield(
                         Direction.NONE -> 0f to false
                     }
 
-                    drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f)
-                    drawProceduralCaterpillar(
+                    drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
+                    drawSprite(
+                        image = caterpillarSprite,
                         center = headCenter,
                         targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
                         rotationDeg = rotationDeg,
-                        flipX = flipX,
-                        now = now
+                        flipX = flipX
                     )
                 }
 

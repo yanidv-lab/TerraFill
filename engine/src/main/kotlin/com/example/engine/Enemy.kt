@@ -111,15 +111,20 @@ class Jumper(
     override var y: Double,
     override var vx: Double,
     override var vy: Double,
-    override val radius: Double = 0.42
+    override val radius: Double = 0.42,
+    /** 0..1 difficulty: higher = shorter cooldowns (leaps more often) and stronger leaps. */
+    val aggression: Double = 0.0
 ) : Enemy() {
     override val type: String = "Jumper"
 
     private val rng = Random(id.toLong() * 2654435761L)
     private val cruiseSpeed = hypot(vx, vy).coerceAtLeast(1.0)
+    // At full aggression cooldowns shrink to ~45% (jumps roughly twice as often).
+    private val cooldownScale = 1.0 - 0.55 * aggression.coerceIn(0.0, 1.0)
+    private val leapFactor = LEAP_SPEED_FACTOR + 0.8 * aggression.coerceIn(0.0, 1.0)
 
     /** Seconds until the next leap while cruising. */
-    private var cooldown = 1.2 + rng.nextDouble() * 1.6
+    private var cooldown = (1.2 + rng.nextDouble() * 1.6) * cooldownScale
 
     /** Seconds of leap remaining; > 0 means mid-jump (fast). */
     private var leapRemaining = 0.0
@@ -135,14 +140,14 @@ class Jumper(
             if (leapRemaining <= 0.0) {
                 // Land: settle back to a gentle drift in a fresh direction.
                 aim(cruiseSpeed)
-                cooldown = 1.4 + rng.nextDouble() * 1.8
+                cooldown = (1.4 + rng.nextDouble() * 1.8) * cooldownScale
                 leapProgress = 0.0
             }
         } else {
             cooldown -= dt
             if (cooldown <= 0.0) {
                 // Coil and pounce: launch a fast leap in a new random direction.
-                aim(cruiseSpeed * LEAP_SPEED_FACTOR)
+                aim(cruiseSpeed * leapFactor)
                 leapRemaining = LEAP_DURATION
                 leapProgress = 0.0
             }
@@ -157,7 +162,7 @@ class Jumper(
     }
 
     override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
-        return Jumper(id, x, y, vx, vy, radius)
+        return Jumper(id, x, y, vx, vy, radius, aggression)
     }
 
     private companion object {
@@ -293,11 +298,15 @@ class Hunter(
     override var y: Double,
     override var vx: Double,
     override var vy: Double,
-    override val radius: Double = 0.45
+    override val radius: Double = 0.45,
+    /** 0..1 difficulty: higher = faster re-aiming, so the chase is harder to shake. */
+    val aggression: Double = 0.0
 ) : Enemy() {
     override val type: String = "Hunter"
 
     private val speed = hypot(vx, vy).coerceAtLeast(1.0)
+    // At full aggression the turn rate nearly doubles (much harder to juke).
+    private val turnRate = TURN_RATE * (1.0 + 0.9 * aggression.coerceIn(0.0, 1.0))
     private var targetX = x
     private var targetY = y
 
@@ -315,7 +324,7 @@ class Hunter(
             val desiredVx = dx / dist * speed
             val desiredVy = dy / dist * speed
             // Blend current velocity toward the desired heading (limited turn rate)
-            val steer = (TURN_RATE * dt).coerceAtMost(1.0)
+            val steer = (turnRate * dt).coerceAtMost(1.0)
             vx += (desiredVx - vx) * steer
             vy += (desiredVy - vy) * steer
             // Renormalize back to the constant chase speed
@@ -329,10 +338,34 @@ class Hunter(
     }
 
     override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
-        return Hunter(id, x, y, vx, vy, radius)
+        return Hunter(id, x, y, vx, vy, radius, aggression)
     }
 
     private companion object {
-        const val TURN_RATE = 2.2   // how quickly the hunter re-aims (higher = harder to juke)
+        const val TURN_RATE = 2.2   // base re-aim rate (higher = harder to juke)
+    }
+}
+
+/**
+ * Speeder enemy - a fast spider. Moves in straight lines like a bouncer but far
+ * quicker, so it crosses the field in a blink and punishes slow reactions.
+ * Introduced in the later levels.
+ */
+class Speeder(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.4
+) : Enemy() {
+    override val type: String = "Speeder"
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        stepBounce(grid, dt)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
+        return Speeder(id, x, y, vx, vy, radius)
     }
 }

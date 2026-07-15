@@ -28,7 +28,9 @@ class GameEngineTest {
             crawlerCount = 0,
             jumperCount = 0,
             hunterCount = 0,
+            speederCount = 0,
             enemySpeed = 0.0,
+            enemyAggression = 0.0,
             targetPercentage = targetPercentage,
             timeLimitSeconds = timeLimitSeconds
         ),
@@ -451,7 +453,9 @@ class GameEngineTest {
     @Test
     fun `enemy count is capped even at very high levels`() {
         val cfg = LevelConfig.getConfig(999)
-        assertTrue(cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount + cfg.hunterCount <= 12)
+        val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
+            cfg.hunterCount + cfg.speederCount
+        assertTrue(total <= 13)
         assertTrue(cfg.enemySpeed <= 9.5)
     }
 
@@ -460,6 +464,57 @@ class GameEngineTest {
         assertEquals(0, LevelConfig.getConfig(5).hunterCount)
         assertTrue(LevelConfig.getConfig(6).hunterCount >= 1)
         assertTrue(LevelConfig.getConfig(20).hunterCount >= LevelConfig.getConfig(6).hunterCount)
+    }
+
+    @Test
+    fun `speeders appear from level 8 and aggression ramps with level`() {
+        assertEquals(0, LevelConfig.getConfig(7).speederCount)
+        assertTrue(LevelConfig.getConfig(8).speederCount >= 1)
+        // Ability aggression climbs as levels rise
+        assertEquals(0.0, LevelConfig.getConfig(1).enemyAggression, 1e-9)
+        assertTrue(LevelConfig.getConfig(20).enemyAggression > LevelConfig.getConfig(5).enemyAggression)
+        assertTrue(LevelConfig.getConfig(20).enemyAggression <= 1.0)
+    }
+
+    // ---------------------------------------------------------------- fast spider + ability scaling
+
+    @Test
+    fun `speeder crosses the field much faster than a bouncer`() {
+        fun distanceAfter(enemy: Enemy): Double {
+            val grid = Array(40) { x ->
+                Array(50) { y ->
+                    if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+                }
+            }
+            val sx = enemy.x; val sy = enemy.y
+            repeat(30) { enemy.update(grid, 0.02) }
+            return kotlin.math.hypot(enemy.x - sx, enemy.y - sy)
+        }
+        val bouncer = Bouncer(id = 1, x = 20.0, y = 25.0, vx = 4.0, vy = 0.0)
+        val speeder = Speeder(id = 2, x = 20.0, y = 25.0, vx = 4.0 * 1.8, vy = 0.0)
+        assertTrue(distanceAfter(speeder) > distanceAfter(bouncer) * 1.5)
+    }
+
+    @Test
+    fun `a more aggressive jumper leaps more often`() {
+        fun leapCount(aggression: Double): Int {
+            val j = Jumper(id = 3, x = 20.0, y = 25.0, vx = 2.0, vy = 0.0, aggression = aggression)
+            val grid = Array(40) { x ->
+                Array(50) { y ->
+                    if (x == 0 || x == 39 || y == 0 || y == 49) GridCellState.CAPTURED else GridCellState.EMPTY
+                }
+            }
+            var leaps = 0
+            var wasLeaping = false
+            repeat(600) {
+                j.update(grid, 0.02)
+                val leaping = j.leapProgress > 0.0
+                if (leaping && !wasLeaping) leaps++
+                wasLeaping = leaping
+            }
+            return leaps
+        }
+        assertTrue(leapCount(1.0) > leapCount(0.0))
     }
 
     // ---------------------------------------------------------------- hunting spider
