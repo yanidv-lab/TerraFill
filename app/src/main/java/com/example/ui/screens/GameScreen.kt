@@ -447,51 +447,18 @@ fun GameScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Jungle backdrop: beautiful procedurally drawn lush green/dark forest gradient with ambient lighting
+        // Jungle backdrop: the real jungle artwork, filling the whole screen
+        Image(
+            painter = painterResource(R.drawable.bg_jungle),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        // Dark scrim so the HUD text stays readable and characters pop over the busy jungle
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF07210B), // Deep jungle moss green
-                            Color(0xFF031407), // Dark forest shade
-                            Color(0xFF010603)  // Near-black organic shadows
-                        )
-                    )
-                )
-        ) {
-            // Draw abstract ambient sun rays and canopy dappled light
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                // Subtle sun rays from top-left
-                val rayBrush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0x1F52C467), // Glowing light green ray
-                        Color.Transparent
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width * 0.8f, size.height * 0.4f)
-                )
-                drawRect(brush = rayBrush)
-
-                // Ambient glow in center-bottom
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x14408B51), // Soft organic glow
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.5f, size.height * 0.7f),
-                        radius = size.width * 0.6f
-                    )
-                )
-            }
-        }
-        // Dark scrim so the HUD text stays readable and characters pop
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f))
+                .background(Color.Black.copy(alpha = 0.3f))
         )
 
         Column(
