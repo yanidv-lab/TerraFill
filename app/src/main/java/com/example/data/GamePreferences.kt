@@ -16,7 +16,13 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 /**
  * Manages local state persistence for level unlock progress and high scores in TerraFill.
  */
-class GamePreferences(private val context: Context) {
+class GamePreferences(context: Context) {
+
+    private val appContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        context.applicationContext.createAttributionContext("default")
+    } else {
+        context.applicationContext
+    }
 
     companion object {
         private val HIGHEST_UNLOCKED_LEVEL = intPreferencesKey("highest_unlocked_level")
@@ -30,35 +36,35 @@ class GamePreferences(private val context: Context) {
     /**
      * Flow of the highest unlocked level. Defaults to level 1.
      */
-    val highestUnlockedLevel: Flow<Int> = context.dataStore.data.map { preferences ->
+    val highestUnlockedLevel: Flow<Int> = appContext.dataStore.data.map { preferences ->
         preferences[HIGHEST_UNLOCKED_LEVEL] ?: 1
     }
 
     /**
      * Retrieves the high score percentage achieved for a specific level.
      */
-    fun getBestPercentage(level: Int): Flow<Double> = context.contextDataStore().map { preferences ->
+    fun getBestPercentage(level: Int): Flow<Double> = appContext.contextDataStore().map { preferences ->
         preferences[percentageKey(level)] ?: 0.0
     }
 
     /**
      * Retrieves the best completion time (seconds remaining) for a specific level.
      */
-    fun getBestTimeRemaining(level: Int): Flow<Int> = context.contextDataStore().map { preferences ->
+    fun getBestTimeRemaining(level: Int): Flow<Int> = appContext.contextDataStore().map { preferences ->
         preferences[timeKey(level)] ?: 0
     }
 
     /**
      * Retrieves the high score achieved for a specific level.
      */
-    fun getBestScore(level: Int): Flow<Int> = context.contextDataStore().map { preferences ->
+    fun getBestScore(level: Int): Flow<Int> = appContext.contextDataStore().map { preferences ->
         preferences[scoreKey(level)] ?: 0
     }
 
     /**
      * Retrieves the best star rating (0-3) earned for a specific level.
      */
-    fun getBestStars(level: Int): Flow<Int> = context.contextDataStore().map { preferences ->
+    fun getBestStars(level: Int): Flow<Int> = appContext.contextDataStore().map { preferences ->
         preferences[starsKey(level)] ?: 0
     }
 
@@ -66,7 +72,7 @@ class GamePreferences(private val context: Context) {
      * Saves progress of a level completed by the player. Unlocks the next level.
      */
     suspend fun saveLevelCompletion(level: Int, percentage: Double, timeRemaining: Int, score: Int, stars: Int) {
-        context.dataStore.edit { preferences ->
+        appContext.dataStore.edit { preferences ->
             // Save level scores if they are better than the previous high
             val currentBestPerc = preferences[percentageKey(level)] ?: 0.0
             if (percentage > currentBestPerc) {
@@ -100,7 +106,7 @@ class GamePreferences(private val context: Context) {
      * Reset all saved game progress back to level 1.
      */
     suspend fun resetProgress() {
-        context.dataStore.edit { preferences ->
+        appContext.dataStore.edit { preferences ->
             preferences.clear()
         }
     }
