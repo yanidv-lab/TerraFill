@@ -1,6 +1,8 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,6 +15,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.navigation.NavGraph
 import com.example.ui.GameViewModel
 import com.example.ui.theme.MyApplicationTheme
+import java.io.PrintWriter
+import java.io.StringWriter
 
 /**
  * Entry Activity for TerraFill.
@@ -23,6 +27,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Global crash handler — shows a readable error screen instead of silently closing.
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val sw = StringWriter()
+                throwable.printStackTrace(PrintWriter(sw))
+                val crashMsg = "Thread: ${thread.name}\n\n$sw"
+                Log.e("TERRA_CRASH", crashMsg)
+                startActivity(
+                    Intent(this, CrashActivity::class.java).apply {
+                        putExtra(CrashActivity.EXTRA_STACK_TRACE, crashMsg)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("TERRA_CRASH", "Failed to launch crash screen", e)
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
+        }
+
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {

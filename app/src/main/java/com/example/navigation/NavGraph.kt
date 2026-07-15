@@ -162,7 +162,8 @@ fun NavGraph(
                 levelNumber = levelNumber,
                 score = score,
                 onRetry = {
-                    navController.navigate(Screen.Game.createRoute(levelNumber)) {
+                    viewModel.resetAllProgress()
+                    navController.navigate(Screen.Game.createRoute(1)) {
                         popUpTo(Screen.MainMenu.route)
                     }
                 },

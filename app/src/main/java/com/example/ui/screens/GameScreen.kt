@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -234,18 +235,41 @@ fun GameScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Jungle backdrop: the real jungle artwork, filling the whole screen
-        Image(
-            painter = painterResource(R.drawable.bg_jungle),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        // Dark scrim so the HUD text stays readable and characters pop over the busy jungle
+        // Safely load the real jungle artwork by downsampling it slightly
+        // to avoid OutOfMemoryError and decode crashes on some devices.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val bgBitmap = remember(context) {
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = 2 // Downsample by 2 to prevent memory crashes
+            }
+            android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.bg_jungle, options)
+                ?.let { it.asImageBitmap() }
+        }
+
+        if (bgBitmap != null) {
+            Image(
+                bitmap = bgBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // Fallback gradient if decode totally fails
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF0A1F0A), Color(0xFF112211), Color(0xFF0D2B18), Color(0xFF081A12)
+                        )
+                    )
+                )
+            }
+        }
+        // Dark scrim so the HUD text stays readable and characters pop
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f))
+                .background(Color.Black.copy(alpha = 0.15f))
         )
 
         Column(
@@ -898,7 +922,7 @@ fun Playfield(
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
                     val flip = enemy.vx < 0
-                    drawSprite(
+                    if (sprite != null) drawSprite(
                         image = sprite,
                         center = center + Offset(0f, bob),
                         targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
@@ -932,7 +956,7 @@ fun Playfield(
                     }
 
                     drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
-                    drawSprite(
+                    if (caterpillarSprite != null) drawSprite(
                         image = caterpillarSprite,
                         center = headCenter,
                         targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
