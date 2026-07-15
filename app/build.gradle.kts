@@ -48,6 +48,8 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
+base.archivesName.set("terra")
+
 dependencies {
   // Pure-Kotlin game engine (composite build, see /engine)
   implementation("com.terrafill:engine:1.0")

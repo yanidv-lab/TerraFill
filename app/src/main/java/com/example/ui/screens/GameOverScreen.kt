@@ -93,6 +93,16 @@ fun GameOverScreen(
                     letterSpacing = 1.sp,
                     textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "ALL PROGRESS LOST",
+                    color = Color(0xFFFF4466),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp,
+                    textAlign = TextAlign.Center
+                )
             }
 
             // Score Card
@@ -181,7 +191,7 @@ fun GameOverScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "TRY AGAIN",
+                            text = "RESTART FROM LEVEL 1",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace

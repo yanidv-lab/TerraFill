@@ -1,6 +1,7 @@
 package com.example.audio
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
@@ -45,32 +46,45 @@ class SoundManager(context: Context) {
         startSfxLoop()
     }
 
-    /**
-     * Computes a safe AudioTrack buffer size in bytes. Real devices reject buffers
-     * smaller than [AudioTrack.getMinBufferSize] (emulators are lenient), so always
-     * honor the hardware minimum or audio will be silently disabled on phones.
-     */
-    private fun safeTrackBufferBytes(desiredBytes: Int): Int {
-        val min = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        return if (min > 0) maxOf(min, desiredBytes) else maxOf(4096, desiredBytes)
-    }
-
     private fun startSfxLoop() {
         sfxJob = scope.launch {
             val bufferSize = 256
-            val track = try {
-                AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    safeTrackBufferBytes(bufferSize * 2),
-                    AudioTrack.MODE_STREAM
-                )
+            val minBufSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            // getMinBufferSize returns ERROR (-1) or ERROR_BAD_VALUE (-2) on failure
+            if (minBufSize <= 0) {
+                Log.e("SoundManager", "getMinBufferSize failed for SFX: $minBufSize")
+                return@launch
+            }
+            val trackBufSize = maxOf(minBufSize, bufferSize * 2)
+            val track: AudioTrack? = try {
+                AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_GAME)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(sampleRate)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(trackBufSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                    .also { t ->
+                        if (t.state != AudioTrack.STATE_INITIALIZED) {
+                            Log.e("SoundManager", "SFX AudioTrack not initialized, state=${t.state}")
+                            t.release()
+                            return@launch
+                        }
+                    }
             } catch (e: Exception) {
                 Log.e("SoundManager", "Failed to create SFX AudioTrack", e)
                 null
@@ -78,9 +92,15 @@ class SoundManager(context: Context) {
             
             track?.let {
                 try {
-                    it.play()
+                    if (it.state == AudioTrack.STATE_INITIALIZED) {
+                        it.play()
+                    } else {
+                        Log.e("SoundManager", "SFX track not initialized")
+                        return@launch
+                    }
                 } catch (e: Exception) {
                     Log.e("SoundManager", "Failed to play SFX AudioTrack", e)
+                    return@launch
                 }
             }
 
@@ -185,27 +205,61 @@ class SoundManager(context: Context) {
 
         musicJob = scope.launch {
             val bufferSize = 512
-            val track = try {
-                AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    safeTrackBufferBytes(bufferSize * 2),
-                    AudioTrack.MODE_STREAM
-                )
+            val minBufSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBufSize <= 0) {
+                Log.e("SoundManager", "getMinBufferSize failed for music: $minBufSize")
+                musicJob = null
+                return@launch
+            }
+            val trackBufSize = maxOf(minBufSize, bufferSize * 2)
+            val track: AudioTrack? = try {
+                AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_GAME)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(sampleRate)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(trackBufSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                    .also { t ->
+                        if (t.state != AudioTrack.STATE_INITIALIZED) {
+                            Log.e("SoundManager", "Music AudioTrack not initialized, state=${t.state}")
+                            t.release()
+                            musicJob = null
+                            return@launch
+                        }
+                    }
             } catch (e: Exception) {
                 Log.e("SoundManager", "Failed to create music AudioTrack", e)
+                musicJob = null
                 null
             }
             
             musicTrack = track
-            track?.let {
+            if (track != null) {
                 try {
-                    it.play()
+                    track.play()
                 } catch (e: Exception) {
                     Log.e("SoundManager", "Failed to play music AudioTrack", e)
+                    musicJob = null
+                    return@launch
                 }
+            } else {
+                musicJob = null
+                return@launch
             }
 
             // Beautiful 32-step retro chiptune melody and bassline

@@ -23,3 +23,6 @@ engine/build/
 .git_corrupt_bak/
 .build-outputs/
 debug.keystore.base64
+
+# Google IDE (Antigravity) local state - huge machine-generated dumps
+.antigravity/

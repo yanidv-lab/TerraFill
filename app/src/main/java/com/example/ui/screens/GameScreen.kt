@@ -66,11 +66,12 @@ import kotlin.math.sin
  * broken picture must degrade the visuals - never crash the game.
  */
 @Composable
-private fun rememberSafeImage(resId: Int): ImageBitmap? {
+private fun rememberSafeImage(resId: Int, sampleSize: Int = 1): ImageBitmap? {
     val context = LocalContext.current
     return remember(resId) {
         runCatching {
-            android.graphics.BitmapFactory.decodeResource(context.resources, resId)?.asImageBitmap()
+            val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            android.graphics.BitmapFactory.decodeResource(context.resources, resId, options)?.asImageBitmap()
         }.getOrNull()
     }
 }
@@ -286,7 +287,9 @@ fun GameScreen(
         // Jungle backdrop: the real jungle artwork, filling the whole screen.
         // If the image asset is corrupt/undecodable, fall back to a jungle-toned
         // gradient instead of crashing.
-        val jungleBg = rememberSafeImage(R.drawable.bg_jungle)
+        // Downsample by 2: full-screen backdrop doesn't need full resolution, and this
+        // halves peak memory on low-RAM phones.
+        val jungleBg = rememberSafeImage(R.drawable.bg_jungle, sampleSize = 2)
         if (jungleBg != null) {
             Image(
                 bitmap = jungleBg,
