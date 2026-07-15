@@ -45,6 +45,20 @@ class SoundManager(context: Context) {
         startSfxLoop()
     }
 
+    /**
+     * Computes a safe AudioTrack buffer size in bytes. Real devices reject buffers
+     * smaller than [AudioTrack.getMinBufferSize] (emulators are lenient), so always
+     * honor the hardware minimum or audio will be silently disabled on phones.
+     */
+    private fun safeTrackBufferBytes(desiredBytes: Int): Int {
+        val min = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        return if (min > 0) maxOf(min, desiredBytes) else maxOf(4096, desiredBytes)
+    }
+
     private fun startSfxLoop() {
         sfxJob = scope.launch {
             val bufferSize = 256
@@ -54,7 +68,7 @@ class SoundManager(context: Context) {
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
-                    bufferSize * 2,
+                    safeTrackBufferBytes(bufferSize * 2),
                     AudioTrack.MODE_STREAM
                 )
             } catch (e: Exception) {
@@ -177,7 +191,7 @@ class SoundManager(context: Context) {
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
-                    bufferSize * 2,
+                    safeTrackBufferBytes(bufferSize * 2),
                     AudioTrack.MODE_STREAM
                 )
             } catch (e: Exception) {
