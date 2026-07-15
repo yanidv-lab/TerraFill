@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -38,9 +37,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +59,56 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/**
+ * Loads an image resource, tolerating corrupt/undecodable data: returns null instead
+ * of throwing. Art assets have repeatedly been corrupted by external tooling, and a
+ * broken picture must degrade the visuals - never crash the game.
+ */
+@Composable
+private fun rememberSafeImage(resId: Int, sampleSize: Int = 1): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(resId) {
+        runCatching {
+            val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            android.graphics.BitmapFactory.decodeResource(context.resources, resId, options)?.asImageBitmap()
+        }.getOrNull()
+    }
+}
+
+/** Fallback spider drawn when a sprite asset fails to decode (body, legs, eyes). */
+private fun DrawScope.drawFallbackSpider(center: Offset, radius: Float, color: Color) {
+    for (side in intArrayOf(-1, 1)) {
+        for (k in 0 until 4) {
+            val a = -0.7f + k * 0.45f
+            drawLine(
+                color = color,
+                start = center,
+                end = center + Offset(side * cos(a) * radius * 1.9f, sin(a) * radius * 1.9f),
+                strokeWidth = radius * 0.16f,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+    drawCircle(color, radius, center)
+    for (side in intArrayOf(-1, 1)) {
+        val eye = center + Offset(side * radius * 0.32f, -radius * 0.25f)
+        drawCircle(Color.White, radius * 0.26f, eye)
+        drawCircle(Color.Black, radius * 0.12f, eye)
+    }
+}
+
+/** Fallback caterpillar drawn when the player sprite fails to decode. */
+private fun DrawScope.drawFallbackCaterpillar(center: Offset, longSide: Float) {
+    val r = longSide * 0.18f
+    for (k in 3 downTo 1) {
+        drawCircle(NeonGreen, r * (1f - k * 0.08f), center + Offset(k * r * 1.4f, 0f))
+    }
+    drawCircle(NeonGreen, r * 1.15f, center) // head
+    val eye = center + Offset(-r * 0.35f, -r * 0.3f)
+    drawCircle(Color.White, r * 0.4f, eye)
+    drawCircle(Color.Black, r * 0.2f, eye)
+}
 
 /** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
 private const val PLAYER_SPRITE_CELLS = 2.9f
@@ -235,41 +284,35 @@ fun GameScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        // Safely load the real jungle artwork by downsampling it slightly
-        // to avoid OutOfMemoryError and decode crashes on some devices.
-        val context = androidx.compose.ui.platform.LocalContext.current
-        val bgBitmap = remember(context) {
-            val options = android.graphics.BitmapFactory.Options().apply {
-                inSampleSize = 2 // Downsample by 2 to prevent memory crashes
-            }
-            android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.bg_jungle, options)
-                ?.let { it.asImageBitmap() }
-        }
-
-        if (bgBitmap != null) {
+        // Jungle backdrop: the real jungle artwork, filling the whole screen.
+        // If the image asset is corrupt/undecodable, fall back to a jungle-toned
+        // gradient instead of crashing.
+        // Downsample by 2: full-screen backdrop doesn't need full resolution, and this
+        // halves peak memory on low-RAM phones.
+        val jungleBg = rememberSafeImage(R.drawable.bg_jungle, sampleSize = 2)
+        if (jungleBg != null) {
             Image(
-                bitmap = bgBitmap,
+                bitmap = jungleBg,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Fallback gradient if decode totally fails
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF0A1F0A), Color(0xFF112211), Color(0xFF0D2B18), Color(0xFF081A12)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF07210B), Color(0xFF031407), Color(0xFF010603))
                         )
                     )
-                )
-            }
+            )
         }
-        // Dark scrim so the HUD text stays readable and characters pop
+        // Dark scrim so the HUD text stays readable and characters pop over the busy jungle
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.15f))
+                .background(Color.Black.copy(alpha = 0.3f))
         )
 
         Column(
@@ -665,11 +708,13 @@ fun Playfield(
         }
     }
 
-    // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and reused.
-    val caterpillarSprite = ImageBitmap.imageResource(R.drawable.sprite_caterpillar)
-    val spiderRedSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_red)
-    val spiderBlueSprite = ImageBitmap.imageResource(R.drawable.sprite_spider_blue)
-    val spiderGreenSprite = ImageBitmap.imageResource(R.drawable.sprite_spider)
+    // Character sprites (transparent PNGs in res/drawable-nodpi). Loaded once and
+    // reused. Each may be null if the asset is corrupt - draw sites fall back to a
+    // simple vector creature so the game keeps running no matter what.
+    val caterpillarSprite = rememberSafeImage(R.drawable.sprite_caterpillar)
+    val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
+    val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
+    val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
 
     Box(
         modifier = Modifier
@@ -922,14 +967,23 @@ fun Playfield(
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
                     val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
                     val flip = enemy.vx < 0
-                    if (sprite != null) drawSprite(
-                        image = sprite,
-                        center = center + Offset(0f, bob),
-                        targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
-                        rotationDeg = 0f,
-                        flipX = flip,
-                        colorFilter = tint
-                    )
+                    if (sprite != null) {
+                        drawSprite(
+                            image = sprite,
+                            center = center + Offset(0f, bob),
+                            targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
+                            rotationDeg = 0f,
+                            flipX = flip,
+                            colorFilter = tint
+                        )
+                    } else {
+                        // Asset failed to decode: draw a simple spider so gameplay continues
+                        drawFallbackSpider(
+                            center = center + Offset(0f, bob),
+                            radius = cellMin * 0.85f * leapScale * sizeScale,
+                            color = glow
+                        )
+                    }
                 }
 
                 // ---------- 6. The player: the caterpillar sprite, facing its direction ----------
@@ -956,13 +1010,18 @@ fun Playfield(
                     }
 
                     drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
-                    if (caterpillarSprite != null) drawSprite(
-                        image = caterpillarSprite,
-                        center = headCenter,
-                        targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
-                        rotationDeg = rotationDeg,
-                        flipX = flipX
-                    )
+                    if (caterpillarSprite != null) {
+                        drawSprite(
+                            image = caterpillarSprite,
+                            center = headCenter,
+                            targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
+                            rotationDeg = rotationDeg,
+                            flipX = flipX
+                        )
+                    } else {
+                        // Asset failed to decode: draw a simple caterpillar so gameplay continues
+                        drawFallbackCaterpillar(headCenter, cellMin * PLAYER_SPRITE_CELLS)
+                    }
                 }
 
                 // ---------- 6b. Particles ----------

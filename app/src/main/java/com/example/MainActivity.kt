@@ -42,6 +42,11 @@ class MainActivity : ComponentActivity() {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     }
                 )
+                // Kill the broken process so the system starts a fresh one to host the
+                // crash screen. Without this, a main-thread crash leaves the app frozen
+                // and the crash screen never appears.
+                android.os.Process.killProcess(android.os.Process.myPid())
+                kotlin.system.exitProcess(10)
             } catch (e: Exception) {
                 Log.e("TERRA_CRASH", "Failed to launch crash screen", e)
                 defaultHandler?.uncaughtException(thread, throwable)
