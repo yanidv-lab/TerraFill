@@ -835,6 +835,7 @@ fun Playfield(
                         "Bouncer" -> NeonMagenta
                         "Crawler" -> NeonCyan
                         "Hunter" -> Color(0xFFFF2A2A)
+                        "Speeder" -> Color(0xFFFFD500)
                         else -> NeonGreen   // Jumper
                     }
 
@@ -857,20 +858,41 @@ fun Playfield(
                             style = Stroke(width = cellMin * 0.12f)
                         )
                     }
+                    // Speeders leave motion streaks trailing opposite their velocity
+                    if (enemy.type == "Speeder") {
+                        val vmag = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
+                        if (vmag > 0.01f) {
+                            val ux = (-enemy.vx / vmag).toFloat()
+                            val uy = (-enemy.vy / vmag).toFloat()
+                            for (k in 1..3) {
+                                val off = cellMin * 0.5f * k
+                                drawCircle(
+                                    color = Color(0xFFFFD500),
+                                    radius = cellMin * (0.5f - 0.12f * k),
+                                    center = Offset(center.x + ux * off, center.y + uy * off),
+                                    alpha = 0.35f / k
+                                )
+                            }
+                        }
+                    }
                     // Sprite per type: red = bouncer, blue = crawler, green = jumper,
-                    // crimson-tinted silhouette = hunter
+                    // crimson-tinted silhouette = hunter, gold-tinted = speeder
                     val sprite = when (enemy.type) {
                         "Bouncer" -> spiderRedSprite
                         "Crawler" -> spiderBlueSprite
                         "Hunter" -> spiderBlueSprite
+                        "Speeder" -> spiderRedSprite
                         else -> spiderGreenSprite   // Jumper
                     }
-                    val tint = if (enemy.type == "Hunter") {
-                        androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFE01E2B),
-                            androidx.compose.ui.graphics.BlendMode.SrcAtop
+                    val tint = when (enemy.type) {
+                        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop
                         )
-                    } else null
+                        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        else -> null
+                    }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
