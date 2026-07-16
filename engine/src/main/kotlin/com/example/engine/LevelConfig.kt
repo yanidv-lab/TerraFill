@@ -40,8 +40,13 @@ data class LevelConfig(
          * Builds the configuration for any level number, scaling difficulty smoothly:
          * more (and smarter, stronger, faster) enemies, higher capture target, and
          * less time as the level rises.
+         *
+         * [fieldAspect] is the width/height ratio of the on-screen play area. The grid
+         * keeps a fixed width and grows/shrinks in height to match, so the field fills
+         * the device screen edge-to-edge with square cells. The time limit scales with
+         * the resulting cell count so bigger fields don't get harder for free.
          */
-        fun getConfig(level: Int): LevelConfig {
+        fun getConfig(level: Int, fieldAspect: Double = 0.8): LevelConfig {
             val l = level.coerceAtLeast(1)
 
             var bouncers = 1 + (l - 1) / 3                       // 1,1,1,2,2,2,3,...
@@ -67,12 +72,19 @@ data class LevelConfig(
             // Ability aggression ramps from 0 at level 1 to 1.0 around level 18.
             val aggression = ((l - 1) * 0.06).coerceIn(0.0, 1.0)
             val target = (66.0 + (l - 1) * 1.4).coerceAtMost(86.0)
-            val time = (220 - (l - 1) * 7).coerceAtLeast(85)
+
+            val width = 40
+            val height = (width / fieldAspect.coerceIn(0.35, 1.2))
+                .let { Math.round(it).toInt() }
+                .coerceIn(50, 90)
+            // Base time is tuned for the 40x50 grid; scale with the actual area.
+            val areaFactor = (width * height) / (40.0 * 50.0)
+            val time = Math.round((220 - (l - 1) * 7).coerceAtLeast(85) * areaFactor).toInt()
 
             return LevelConfig(
                 levelNumber = l,
-                gridWidth = 40,
-                gridHeight = 50,
+                gridWidth = width,
+                gridHeight = height,
                 bouncerCount = bouncers,
                 crawlerCount = crawlers,
                 jumperCount = jumpers,

@@ -96,6 +96,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private var engine: GameEngine? = null
 
+    // Width/height ratio of the on-screen play area, reported by the UI once the
+    // playfield is laid out. The grid is generated to match it so the field fills
+    // the screen with square cells. 0.62 is a typical portrait-phone starting guess.
+    private var fieldAspect: Double = 0.62
+
     init {
         // Observe unlocked level to update UI state accordingly
         viewModelScope.launch {
@@ -123,7 +128,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Initializes and starts a new game session for the specified level.
      */
     fun startLevel(levelNumber: Int) {
-        val config = LevelConfig.getConfig(levelNumber)
+        val config = LevelConfig.getConfig(levelNumber, fieldAspect)
         val newEngine = GameEngine(config)
         engine = newEngine
         lastCaptureCount = 0
@@ -133,6 +138,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cachedGridVersion = -1
         sound.startMusic()
         updateUiStateFromEngine(newEngine)
+    }
+
+    /**
+     * Called by the UI once the playfield box is laid out, with its width/height ratio.
+     * If the running engine's grid was generated for a noticeably different shape and
+     * the level has effectively not begun yet (no score, no trail, first seconds),
+     * regenerate it so the grid exactly fits the screen. Later levels reuse the stored
+     * aspect directly, so this restart only ever happens right after app start.
+     */
+    fun onFieldSized(aspectWidthOverHeight: Float) {
+        if (!aspectWidthOverHeight.isFinite() || aspectWidthOverHeight <= 0f) return
+        val newAspect = aspectWidthOverHeight.toDouble()
+        val changed = kotlin.math.abs(newAspect - fieldAspect) > 0.02
+        fieldAspect = newAspect
+        val active = engine ?: return
+        val justStarted = active.score == 0 &&
+            !active.isDrawing &&
+            active.timeRemainingSeconds > active.levelConfig.timeLimitSeconds - 3.0
+        if (changed && justStarted && active.status == GameStateStatus.RUNNING) {
+            startLevel(active.levelConfig.levelNumber)
+        }
     }
 
     /**

@@ -110,6 +110,9 @@ fun NavGraph(
                 },
                 onToggleSound = {
                     viewModel.toggleSound()
+                },
+                onFieldSized = { aspect ->
+                    viewModel.onFieldSized(aspect)
                 }
             )
         }

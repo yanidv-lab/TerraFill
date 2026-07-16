@@ -691,6 +691,42 @@ class GameEngineTest {
         assertEquals(3, computeStars(90.0, 75.0, 120.0, 180, 3, 3))
     }
 
+    // ---------------------------------------------------------------- adaptive field shape
+
+    @Test
+    fun `default field aspect keeps the classic 40x50 grid`() {
+        val config = LevelConfig.getConfig(1)
+        assertEquals(40, config.gridWidth)
+        assertEquals(50, config.gridHeight)
+    }
+
+    @Test
+    fun `taller screens get taller grids with time scaled to the extra area`() {
+        val base = LevelConfig.getConfig(1)                    // 40x50
+        val tall = LevelConfig.getConfig(1, fieldAspect = 0.5) // 40x80
+        assertEquals(40, tall.gridWidth)
+        assertEquals(80, tall.gridHeight)
+        // 60% more cells to capture => proportionally more time
+        val expected = Math.round(base.timeLimitSeconds * (40.0 * 80.0) / (40.0 * 50.0)).toInt()
+        assertEquals(expected, tall.timeLimitSeconds)
+    }
+
+    @Test
+    fun `extreme aspect ratios are clamped to a sane grid`() {
+        assertEquals(90, LevelConfig.getConfig(1, fieldAspect = 0.1).gridHeight)
+        assertEquals(50, LevelConfig.getConfig(1, fieldAspect = 5.0).gridHeight)
+    }
+
+    @Test
+    fun `engine runs on an aspect-shaped grid`() {
+        val engine = GameEngine(LevelConfig.getConfig(1, fieldAspect = 0.5))
+        assertEquals(40, engine.width)
+        assertEquals(80, engine.height)
+        // Border cells are pre-captured on the taller grid too
+        assertEquals(GridCellState.CAPTURED, engine.grid[0][79])
+        assertEquals(GridCellState.CAPTURED, engine.grid[39][0])
+    }
+
     // ---------------------------------------------------------------- enemy spawning
 
     @Test
