@@ -31,6 +31,7 @@ fun GameOverScreen(
     score: Int,
     onRetry: () -> Unit,
     onMainMenu: () -> Unit,
+    bestScore: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val bgGradient = Brush.verticalGradient(
@@ -95,8 +96,8 @@ fun GameOverScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "ALL PROGRESS LOST",
-                    color = Color(0xFFFF4466),
+                    text = "PROGRESS & RECORDS SAVED",
+                    color = NeonGreen,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
@@ -158,6 +159,29 @@ fun GameOverScreen(
                             fontSize = 20.sp
                         )
                     }
+
+                    if (bestScore > 0) {
+                        HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "LEVEL BEST:",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = String.format("%06d", bestScore),
+                                color = NeonYellow,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
                 }
             }
 
@@ -191,7 +215,7 @@ fun GameOverScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "RESTART FROM LEVEL 1",
+                            text = "RETRY LEVEL $levelNumber",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace

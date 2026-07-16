@@ -86,6 +86,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val highestUnlockedLevel: StateFlow<Int> = preferences.highestUnlockedLevel
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
 
+    // Level the player most recently played - powers the main menu's CONTINUE button
+    val lastPlayedLevel: StateFlow<Int> = preferences.lastPlayedLevel
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
+
     // Observe level high scores
     private val _highScores = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val highScores: StateFlow<Map<Int, Int>> = _highScores.asStateFlow()
@@ -137,6 +141,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastStatus = GameStateStatus.RUNNING
         cachedGridVersion = -1
         sound.startMusic()
+        viewModelScope.launch { preferences.saveLastPlayedLevel(config.levelNumber) }
         updateUiStateFromEngine(newEngine)
     }
 

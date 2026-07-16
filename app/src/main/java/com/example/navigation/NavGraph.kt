@@ -35,10 +35,13 @@ fun NavGraph(
     ) {
         // 1. MAIN MENU SCREEN
         composable(route = Screen.MainMenu.route) {
+            val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
+
             MainMenuScreen(
                 highestUnlockedLevel = highestUnlockedLevel,
                 highScores = highScores,
                 levelStars = levelStars,
+                lastPlayedLevel = lastPlayed,
                 onStartGame = { level ->
                     navController.navigate(Screen.Game.createRoute(level))
                 },
@@ -132,11 +135,16 @@ fun NavGraph(
             val timeRemaining = backStackEntry.arguments?.getInt("timeRemaining") ?: 0
             val stars = backStackEntry.arguments?.getInt("stars") ?: 0
 
+            val bestScores by viewModel.highScores.collectAsStateWithLifecycle()
+
             LevelCompleteScreen(
                 levelNumber = levelNumber,
                 score = score,
                 timeRemaining = timeRemaining,
                 stars = stars,
+                // The stored best already includes this run, so matching it means
+                // this run set (or tied) the record.
+                isNewRecord = score > 0 && score >= (bestScores[levelNumber] ?: 0),
                 onNextLevel = {
                     navController.navigate(Screen.Game.createRoute(levelNumber + 1)) {
                         popUpTo(Screen.MainMenu.route)
@@ -161,12 +169,16 @@ fun NavGraph(
             val levelNumber = backStackEntry.arguments?.getInt("levelNumber") ?: 1
             val score = backStackEntry.arguments?.getInt("score") ?: 0
 
+            val bestScores by viewModel.highScores.collectAsStateWithLifecycle()
+
             GameOverScreen(
                 levelNumber = levelNumber,
                 score = score,
+                bestScore = bestScores[levelNumber] ?: 0,
+                // Losing must never erase the player's records or unlocks - it just
+                // offers an instant retry of the same level. Frustration-free.
                 onRetry = {
-                    viewModel.resetAllProgress()
-                    navController.navigate(Screen.Game.createRoute(1)) {
+                    navController.navigate(Screen.Game.createRoute(levelNumber)) {
                         popUpTo(Screen.MainMenu.route)
                     }
                 },
