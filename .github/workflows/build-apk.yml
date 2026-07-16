@@ -1,0 +1,62 @@
+# Builds an installable debug APK on GitHub's servers (which have the full
+# Android SDK) on every push to main or a claude/* branch. The finished APK
+# is attached to the run as a downloadable artifact:
+#   GitHub repo -> Actions tab -> latest run -> "TerraFill-debug-apk"
+#
+# Tests run first, including AssetIntegrityTest, so a build with corrupted
+# art fails loudly instead of shipping fallback graphics.
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle (with build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Run engine tests
+        run: ./gradlew -p engine test
+
+      - name: Run app unit tests (includes asset integrity check)
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerraFill-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test reports (only when something failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/
+            engine/build/reports/tests/
+          if-no-files-found: ignore
