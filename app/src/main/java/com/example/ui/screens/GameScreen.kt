@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -346,6 +347,38 @@ fun GameScreen(
                     onFieldSized = onFieldSized
                 )
 
+                // One-line touch tutorial on the first level, fading away on its own.
+                // With no visible buttons, this is the only teaching the game needs.
+                if (state.levelNumber == 1) {
+                    var hintVisible by remember { mutableStateOf(true) }
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(8000)
+                        hintVisible = false
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = hintVisible,
+                        exit = androidx.compose.animation.fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(900)
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 22.dp)
+                    ) {
+                        Text(
+                            text = "SWIPE TO STEER  •  TAP TO STOP",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
                 // Crash flashing reset animation overlay
                 if (state.status == GameStateStatus.CRASH_RESET) {
                     Box(
@@ -448,11 +481,6 @@ fun GameScreen(
                 }
             }
 
-            // ================== 3. TACTICAL PRECISION CONTROLS ==================
-            ControlPanel(
-                currentDirection = state.playerDirection,
-                onDirectionChanged = onDirectionChanged
-            )
         }
     }
 }
@@ -739,20 +767,36 @@ fun Playfield(
             // Dark, mostly-opaque panel so the jungle bleeds in only slightly and gameplay stays readable
             .background(JunglePanel)
             .pointerInput(Unit) {
-                // Swipe gesture detection
+                // Continuous swipe steering: movement accumulates while the finger is
+                // down, and every `stepPx` of travel fires the dominant direction and
+                // resets. The player can steer through corners with one long stroke -
+                // no lifting, no per-event jitter (the old code re-decided on every
+                // tiny drag event, which felt twitchy on diagonals).
+                val stepPx = 26.dp.toPx()
+                var accX = 0f
+                var accY = 0f
                 detectDragGestures(
+                    onDragStart = { accX = 0f; accY = 0f },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        val (dx, dy) = dragAmount
-                        if (abs(dx) > abs(dy)) {
-                            if (dx > 8f) onDirectionChanged(Direction.RIGHT)
-                            else if (dx < -8f) onDirectionChanged(Direction.LEFT)
-                        } else {
-                            if (dy > 8f) onDirectionChanged(Direction.DOWN)
-                            else if (dy < -8f) onDirectionChanged(Direction.UP)
+                        accX += dragAmount.x
+                        accY += dragAmount.y
+                        if (abs(accX) >= stepPx || abs(accY) >= stepPx) {
+                            if (abs(accX) > abs(accY)) {
+                                onDirectionChanged(if (accX > 0f) Direction.RIGHT else Direction.LEFT)
+                            } else {
+                                onDirectionChanged(if (accY > 0f) Direction.DOWN else Direction.UP)
+                            }
+                            accX = 0f
+                            accY = 0f
                         }
                     }
                 )
+            }
+            .pointerInput(Unit) {
+                // A simple tap (no drag) halts the caterpillar - the safety brake the
+                // old STOP button provided, now on the whole field.
+                detectTapGestures(onTap = { onDirectionChanged(Direction.NONE) })
             }
             .testTag("playfield_canvas")
     ) {
@@ -1120,144 +1164,4 @@ private fun EffectChip(label: String, color: Color) {
             .background(color)
             .padding(horizontal = 6.dp, vertical = 2.dp)
     )
-}
-
-/**
- * Tactical precision D-pad control board.
- */
-@Composable
-fun ControlPanel(
-    currentDirection: Direction,
-    onDirectionChanged: (Direction) -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-    ) {
-        // D-Pad Grid matching tactile Sleek Interface layout
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Row 1: UP
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (currentDirection == Direction.UP) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
-                    .border(
-                        width = 1.5.dp,
-                        color = if (currentDirection == Direction.UP) NeonCyan else NeonPurple.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .clickable { onDirectionChanged(Direction.UP) }
-                    .testTag("dpad_up")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Move Up",
-                    tint = if (currentDirection == Direction.UP) NeonCyan else NeonPurple,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-
-            // Row 2: LEFT, STOP, RIGHT
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // LEFT
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (currentDirection == Direction.LEFT) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
-                    .border(
-                        width = 1.5.dp,
-                        color = if (currentDirection == Direction.LEFT) NeonCyan else NeonPurple.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                        .clickable { onDirectionChanged(Direction.LEFT) }
-                        .testTag("dpad_left")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowLeft,
-                        contentDescription = "Move Left",
-                        tint = if (currentDirection == Direction.LEFT) NeonCyan else NeonPurple,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                // STOP (NONE)
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (currentDirection == Direction.NONE) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
-                    .border(
-                        width = 1.5.dp,
-                        color = if (currentDirection == Direction.NONE) NeonCyan else NeonPurple.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                        .clickable { onDirectionChanged(Direction.NONE) }
-                        .testTag("dpad_stop")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .background(if (currentDirection == Direction.NONE) NeonCyan else NeonPurple.copy(alpha = 0.6f), CircleShape)
-                    )
-                }
-
-                // RIGHT
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (currentDirection == Direction.RIGHT) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
-                    .border(
-                        width = 1.5.dp,
-                        color = if (currentDirection == Direction.RIGHT) NeonCyan else NeonPurple.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                        .clickable { onDirectionChanged(Direction.RIGHT) }
-                        .testTag("dpad_right")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowRight,
-                        contentDescription = "Move Right",
-                        tint = if (currentDirection == Direction.RIGHT) NeonCyan else NeonPurple,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
-
-            // Row 3: DOWN
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (currentDirection == Direction.DOWN) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
-                    .border(
-                        width = 1.5.dp,
-                        color = if (currentDirection == Direction.DOWN) NeonCyan else NeonPurple.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .clickable { onDirectionChanged(Direction.DOWN) }
-                    .testTag("dpad_down")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Move Down",
-                    tint = if (currentDirection == Direction.DOWN) NeonCyan else NeonPurple,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-        }
-    }
 }
