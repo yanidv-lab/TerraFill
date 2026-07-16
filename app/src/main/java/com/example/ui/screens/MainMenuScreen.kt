@@ -74,7 +74,7 @@ fun MainMenuScreen(
         val isWide = maxWidth > 650.dp
 
         // Real jungle artwork behind everything, darkened for readability
-        val jungleBg = rememberSafeImage(R.drawable.bg_jungle, sampleSize = 2)
+        val jungleBg = rememberSafeImage(R.drawable.bg_menu, sampleSize = 2)
         if (jungleBg != null) {
             Image(
                 bitmap = jungleBg,
@@ -214,6 +214,21 @@ fun MainMenuScreen(
  */
 @Composable
 private fun JungleHero(modifier: Modifier = Modifier) {
+    // Prefer the hand-made hero artwork; the animated canvas scene below is the
+    // fallback when the image asset is missing or corrupt.
+    val heroArt = rememberSafeImage(R.drawable.menu_hero)
+    if (heroArt != null) {
+        Image(
+            bitmap = heroArt,
+            contentDescription = "The caterpillar facing the jungle spiders",
+            contentScale = ContentScale.FillWidth,
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, LeafGreen.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+        )
+        return
+    }
     val caterpillar = rememberSafeImage(R.drawable.sprite_caterpillar)
     val spiderRed = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlue = rememberSafeImage(R.drawable.sprite_spider_blue)
