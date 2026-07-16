@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -40,6 +46,7 @@ fun LevelCompleteScreen(
     score: Int,
     timeRemaining: Int,
     stars: Int = 3,
+    isNewRecord: Boolean = false,
     onNextLevel: () -> Unit,
     onMainMenu: () -> Unit,
     modifier: Modifier = Modifier
@@ -188,13 +195,47 @@ fun LevelCompleteScreen(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            text = String.format("%06d", score),
-                            color = NeonCyan,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 20.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (isNewRecord) {
+                                // Pulsing celebration badge - beating your own best
+                                // is the core replay hook, so make it unmissable.
+                                val pulse = rememberInfiniteTransition(label = "record")
+                                    .animateFloat(
+                                        initialValue = 0.85f,
+                                        targetValue = 1.1f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(420),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "recordPulse"
+                                    )
+                                Text(
+                                    text = "NEW RECORD!",
+                                    color = Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            scaleX = pulse.value
+                                            scaleY = pulse.value
+                                        }
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(NeonYellow)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Text(
+                                text = String.format("%06d", score),
+                                color = NeonCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 20.sp
+                            )
+                        }
                     }
 
                     HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))

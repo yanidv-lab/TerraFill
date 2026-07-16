@@ -8,9 +8,9 @@ package com.example.engine
  *
  * Enemy roster by level band:
  *  - from level 1: bouncers (drift + bounce) and crawlers (wall-followers)
- *  - from level 4: jumpers (spiders that leap in fast bursts)
- *  - from level 6: hunters (spiders that actively chase the player)
- *  - from level 8: speeders (very fast straight-line spiders)
+ *  - from level 3: jumpers (spiders that leap in fast bursts)
+ *  - from level 5: hunters (spiders that actively chase the player)
+ *  - from level 7: speeders (very fast straight-line spiders)
  * On top of the counts, movement speed, the capture target, time pressure, and
  * enemy "aggression" (how strong the jumper/hunter abilities are) all scale up
  * every level.
@@ -34,7 +34,7 @@ data class LevelConfig(
         const val TOTAL_LEVELS = 20
 
         /** Upper bound on total enemies so the field never gets impossibly crowded. */
-        private const val MAX_ENEMIES = 13
+        private const val MAX_ENEMIES = 14
 
         /**
          * Builds the configuration for any level number, scaling difficulty smoothly:
@@ -51,9 +51,9 @@ data class LevelConfig(
 
             var bouncers = 1 + (l - 1) / 3                       // 1,1,1,2,2,2,3,...
             var crawlers = 1 + (l - 1) / 4                       // 1,1,1,1,2,...
-            var jumpers = if (l < 4) 0 else 1 + (l - 4) / 4      // from L4
-            var hunters = if (l < 6) 0 else 1 + (l - 6) / 4      // from L6
-            var speeders = if (l < 8) 0 else 1 + (l - 8) / 5     // from L8
+            var jumpers = if (l < 3) 0 else 1 + (l - 3) / 4      // from L3
+            var hunters = if (l < 5) 0 else 1 + (l - 5) / 4      // from L5
+            var speeders = if (l < 7) 0 else 1 + (l - 7) / 5     // from L7
 
             // Keep the total manageable: while over budget, trim the largest group.
             fun total() = bouncers + crawlers + jumpers + hunters + speeders
@@ -68,10 +68,13 @@ data class LevelConfig(
                 }
             }
 
-            val speed = (3.2 + (l - 1) * 0.32).coerceAtMost(9.5)
-            // Ability aggression ramps from 0 at level 1 to 1.0 around level 18.
-            val aggression = ((l - 1) * 0.06).coerceIn(0.0, 1.0)
-            val target = (66.0 + (l - 1) * 1.4).coerceAtMost(86.0)
+            // Difficulty curve: level 1 stays welcoming, but each level up is a
+            // clearly felt step - faster spiders (steeper 0.42/level ramp), stronger
+            // abilities, a higher capture target and a tighter clock.
+            val speed = (3.4 + (l - 1) * 0.42).coerceAtMost(10.5)
+            // Ability aggression ramps from 0 at level 1 to 1.0 around level 14.
+            val aggression = ((l - 1) * 0.075).coerceIn(0.0, 1.0)
+            val target = (68.0 + (l - 1) * 1.6).coerceAtMost(88.0)
 
             val width = 40
             val height = (width / fieldAspect.coerceIn(0.35, 1.2))
@@ -79,7 +82,7 @@ data class LevelConfig(
                 .coerceIn(50, 90)
             // Base time is tuned for the 40x50 grid; scale with the actual area.
             val areaFactor = (width * height) / (40.0 * 50.0)
-            val time = Math.round((220 - (l - 1) * 7).coerceAtLeast(85) * areaFactor).toInt()
+            val time = Math.round((200 - (l - 1) * 8).coerceAtLeast(80) * areaFactor).toInt()
 
             return LevelConfig(
                 levelNumber = l,

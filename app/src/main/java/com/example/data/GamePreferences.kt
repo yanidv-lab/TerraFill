@@ -26,6 +26,7 @@ class GamePreferences(context: Context) {
 
     companion object {
         private val HIGHEST_UNLOCKED_LEVEL = intPreferencesKey("highest_unlocked_level")
+        private val LAST_PLAYED_LEVEL = intPreferencesKey("last_played_level")
 
         private fun percentageKey(level: Int) = doublePreferencesKey("best_percentage_level_$level")
         private fun timeKey(level: Int) = intPreferencesKey("best_time_level_$level")
@@ -38,6 +39,21 @@ class GamePreferences(context: Context) {
      */
     val highestUnlockedLevel: Flow<Int> = appContext.dataStore.data.map { preferences ->
         preferences[HIGHEST_UNLOCKED_LEVEL] ?: 1
+    }
+
+    /**
+     * Flow of the level the player most recently played, so the game can offer a
+     * one-tap "continue where you left off". Defaults to level 1.
+     */
+    val lastPlayedLevel: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        preferences[LAST_PLAYED_LEVEL] ?: 1
+    }
+
+    /** Remembers the level the player just started, for the continue button. */
+    suspend fun saveLastPlayedLevel(level: Int) {
+        appContext.dataStore.edit { preferences ->
+            preferences[LAST_PLAYED_LEVEL] = level
+        }
     }
 
     /**

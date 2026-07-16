@@ -38,6 +38,7 @@ fun MainMenuScreen(
     highestUnlockedLevel: Int,
     highScores: Map<Int, Int>,
     levelStars: Map<Int, Int> = emptyMap(),
+    lastPlayedLevel: Int = 1,
     onStartGame: (Int) -> Unit,
     onResetProgress: () -> Unit,
     modifier: Modifier = Modifier
@@ -81,6 +82,7 @@ fun MainMenuScreen(
                     PlayCard(
                         highestUnlockedLevel = highestUnlockedLevel,
                         levelStars = levelStars,
+                        lastPlayedLevel = lastPlayedLevel,
                         onStartGame = onStartGame
                     )
                 }
@@ -112,6 +114,7 @@ fun MainMenuScreen(
                 PlayCard(
                     highestUnlockedLevel = highestUnlockedLevel,
                     levelStars = levelStars,
+                    lastPlayedLevel = lastPlayedLevel,
                     onStartGame = onStartGame
                 )
 
@@ -197,8 +200,13 @@ private fun TitleHeader() {
 private fun PlayCard(
     highestUnlockedLevel: Int,
     levelStars: Map<Int, Int> = emptyMap(),
+    lastPlayedLevel: Int = 1,
     onStartGame: (Int) -> Unit
 ) {
+    // One-tap resume: return the player exactly where they left off. Falls back
+    // to the highest unlocked level if the memory is stale or out of range.
+    val continueLevel = lastPlayedLevel.coerceIn(1, highestUnlockedLevel)
+    val isFreshStart = highestUnlockedLevel == 1 && continueLevel == 1
     Card(
         colors = CardDefaults.cardColors(containerColor = ArcadeCardDark),
         border = BorderStroke(1.dp, NeonPurple.copy(alpha = 0.3f)),
@@ -219,9 +227,9 @@ private fun PlayCard(
                 modifier = Modifier.align(Alignment.Start)
             )
 
-            // Primary Play Button: Starts the current highest unlocked level
+            // Primary Play Button: resumes the last played level
             Button(
-                onClick = { onStartGame(highestUnlockedLevel) },
+                onClick = { onStartGame(continueLevel) },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeonCyan,
                     contentColor = Color.Black
@@ -244,7 +252,7 @@ private fun PlayCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "PLAY LEVEL $highestUnlockedLevel",
+                        text = if (isFreshStart) "START GAME" else "CONTINUE \u2022 LEVEL $continueLevel",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace

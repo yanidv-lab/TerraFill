@@ -451,25 +451,36 @@ class GameEngineTest {
     }
 
     @Test
+    fun `every level up is a felt difficulty step`() {
+        for (l in 1 until 15) {
+            val a = LevelConfig.getConfig(l)
+            val b = LevelConfig.getConfig(l + 1)
+            assertTrue("speed step L$l", b.enemySpeed > a.enemySpeed + 0.3)
+            assertTrue("target step L$l", b.targetPercentage >= a.targetPercentage)
+            assertTrue("time step L$l", b.timeLimitSeconds <= a.timeLimitSeconds)
+        }
+    }
+
+    @Test
     fun `enemy count is capped even at very high levels`() {
         val cfg = LevelConfig.getConfig(999)
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
             cfg.hunterCount + cfg.speederCount
-        assertTrue(total <= 13)
-        assertTrue(cfg.enemySpeed <= 9.5)
+        assertTrue(total <= 14)
+        assertTrue(cfg.enemySpeed <= 10.5)
     }
 
     @Test
-    fun `hunters appear only from level 6 and scale up`() {
-        assertEquals(0, LevelConfig.getConfig(5).hunterCount)
-        assertTrue(LevelConfig.getConfig(6).hunterCount >= 1)
-        assertTrue(LevelConfig.getConfig(20).hunterCount >= LevelConfig.getConfig(6).hunterCount)
+    fun `hunters appear only from level 5 and scale up`() {
+        assertEquals(0, LevelConfig.getConfig(4).hunterCount)
+        assertTrue(LevelConfig.getConfig(5).hunterCount >= 1)
+        assertTrue(LevelConfig.getConfig(20).hunterCount >= LevelConfig.getConfig(5).hunterCount)
     }
 
     @Test
-    fun `speeders appear from level 8 and aggression ramps with level`() {
-        assertEquals(0, LevelConfig.getConfig(7).speederCount)
-        assertTrue(LevelConfig.getConfig(8).speederCount >= 1)
+    fun `speeders appear from level 7 and aggression ramps with level`() {
+        assertEquals(0, LevelConfig.getConfig(6).speederCount)
+        assertTrue(LevelConfig.getConfig(7).speederCount >= 1)
         // Ability aggression climbs as levels rise
         assertEquals(0.0, LevelConfig.getConfig(1).enemyAggression, 1e-9)
         assertTrue(LevelConfig.getConfig(20).enemyAggression > LevelConfig.getConfig(5).enemyAggression)

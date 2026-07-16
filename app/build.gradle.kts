@@ -9,7 +9,9 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.terrafill.mzvqrx"
+    // Permanent Google Play identity - can NEVER change after the first store
+    // upload, so it must be a clean, ownable id (not a generated one).
+    applicationId = "com.yanidv.terrafill"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
