@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
@@ -127,7 +128,9 @@ private fun DrawScope.drawSprite(
     targetLongSide: Float,
     rotationDeg: Float,
     flipX: Boolean,
-    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
+    scaleX: Float = 1f,
+    scaleY: Float = 1f
 ) {
     val aspect = image.width.toFloat() / image.height.toFloat()
     val dw: Float
@@ -139,7 +142,9 @@ private fun DrawScope.drawSprite(
     }
     withTransform({
         rotate(rotationDeg, center)
-        if (flipX) scale(-1f, 1f, center)
+        // Squash & stretch in the sprite's own axes (applied before rotation), so a
+        // walk/crawl cycle deforms along the creature's body regardless of heading.
+        scale(if (flipX) -scaleX else scaleX, scaleY, center)
     }) {
         drawImage(
             image = image,
@@ -154,6 +159,23 @@ private fun DrawScope.drawSprite(
             colorFilter = colorFilter
         )
     }
+}
+
+/**
+ * Soft elliptical ground shadow that anchors a creature to the field. [lift] (0..1+)
+ * raises the creature off the ground: the shadow shrinks and fades with height,
+ * which is what sells the jumper's leap.
+ */
+private fun DrawScope.drawGroundShadow(center: Offset, width: Float, lift: Float = 0f) {
+    val squeeze = (1f - lift * 0.45f).coerceAtLeast(0.35f)
+    val w = width * squeeze
+    val h = w * 0.3f
+    drawOval(
+        color = Color.Black,
+        topLeft = Offset(center.x - w / 2f, center.y - h / 2f),
+        size = Size(w, h),
+        alpha = 0.30f * squeeze
+    )
 }
 
 /** A short-lived visual particle. Position/velocity are in grid-cell units. */
@@ -230,6 +252,7 @@ fun GameScreen(
     onPauseToggle: () -> Unit,
     onQuitGame: () -> Unit,
     onToggleSound: () -> Unit,
+    onFieldSized: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // 1. Frame-synced Game Loop driving the GameEngine simulation
@@ -318,25 +341,25 @@ fun GameScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(12.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ================== 1. TOP HUD HEADER ==================
+            // ================== 1. TOP HUD HEADER (compact, never over the field) ==================
             HUDHeader(state = state, onPauseToggle = onPauseToggle)
 
-            // ================== 2. THE PLAYFIELD CANVAS ==================
+            // ================== 2. THE PLAYFIELD CANVAS (fills all remaining screen) ==================
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(top = 2.dp, bottom = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Playfield(
                     state = state,
-                    onDirectionChanged = onDirectionChanged
+                    onDirectionChanged = onDirectionChanged,
+                    onFieldSized = onFieldSized
                 )
 
                 // Crash flashing reset animation overlay
@@ -451,170 +474,169 @@ fun GameScreen(
 }
 
 /**
- * Top HUD Bar displaying stats.
+ * Compact top HUD bar: one slim stats row plus a thin capture-progress strip.
+ * Deliberately small so the playfield below gets nearly the whole screen, and it
+ * sits ABOVE the field - it never covers gameplay.
  */
 @Composable
 fun HUDHeader(
     state: GameUiState,
     onPauseToggle: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = ArcadeCardDark),
-        border = BorderStroke(1.5.dp, NeonPurple),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ArcadeBgDark.copy(alpha = 0.72f))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .testTag("real_time_hud_overlay")
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            // First Row: Stats and Pause button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Level
+            Text(
+                text = "L${state.levelNumber}",
+                color = NeonYellow,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
+
+            // Score (+ combo multiplier when active)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = String.format("%06d", state.score),
+                    color = NeonCyan,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+                if (state.scoreMultiplier > 1) {
                     Text(
-                        text = "SCORE",
-                        color = NeonPurple,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = String.format("%06d", state.score),
-                        color = NeonCyan,
-                        fontSize = 18.sp,
+                        text = "COMBO x${state.scoreMultiplier}",
+                        color = Color.Black,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(NeonYellow)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     )
                 }
+            }
 
-                // Level indicator
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "STAGE",
-                        color = NeonPurple,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "LEVEL ${String.format("%02d", state.levelNumber)}",
-                        color = NeonYellow,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-
-                // Timer countdown
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val timeInt = state.timeRemainingSeconds.toInt()
-                    Text(
-                        text = "TIME LIMIT",
-                        color = NeonPurple,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+            // Time remaining
+            run {
+                val timeInt = state.timeRemainingSeconds.toInt()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = "Time",
+                        tint = NeonPurple,
+                        modifier = Modifier.size(13.dp)
                     )
                     Text(
                         text = String.format("%03d", timeInt),
                         color = if (timeInt < 30) NeonMagenta else NeonCyan,
-                        fontSize = 18.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace
                     )
                 }
-
-                // Lives indicators
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    repeat(3) { i ->
-                        Icon(
-                            imageVector = Icons.Default.Favorite,
-                            contentDescription = "Life Icon",
-                            tint = if (i < state.lives) NeonMagenta else Color.White.copy(alpha = 0.15f),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                // Pause button
-                IconButton(
-                    onClick = onPauseToggle,
-                    modifier = Modifier.size(36.dp).testTag("pause_button")
-                ) {
-                    Icon(
-                        imageVector = if (state.status == GameStateStatus.PAUSED) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = "Pause",
-                        tint = NeonCyan
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Second Row: Progress toward target percentage
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "CAPTURE PROGRESS",
-                    color = NeonPurple,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+            // Lives
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = "Lives Icon",
+                    tint = NeonMagenta,
+                    modifier = Modifier.size(13.dp)
                 )
-
-                // Neon progress bar
-                val progress = (state.capturedPercentage / 100.0).toFloat().coerceIn(0f, 1f)
-                val targetProgress = (state.targetPercentage / 100.0).toFloat().coerceIn(0f, 1f)
-                val hasSucceeded = state.capturedPercentage >= state.targetPercentage
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(ArcadeBgDark)
-                        .border(1.5.dp, NeonPurple, RoundedCornerShape(6.dp))
-                ) {
-                    // Current progress fill (Gradient matching design: Cyan to Lavender)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progress)
-                            .background(Brush.horizontalGradient(colors = listOf(NeonCyan, NeonMagenta)))
-                    )
-                    
-                    // Target indicator tick
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(2.dp)
-                            .align(Alignment.CenterStart)
-                            .offset(x = (160.dp * targetProgress).coerceAtLeast(0.dp)) // approximate visual indicator
-                            .background(NeonYellow)
-                    )
-                }
-
                 Text(
-                    text = String.format("%.1f%%", state.capturedPercentage),
-                    color = if (hasSucceeded) NeonGreen else NeonCyan,
-                    fontSize = 11.sp,
+                    text = "x${state.lives}",
+                    color = Color.White,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
                 )
-                Text(
-                    text = "/ ${state.targetPercentage.toInt()}%",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+            }
+
+            // Pause button
+            IconButton(
+                onClick = onPauseToggle,
+                modifier = Modifier.size(30.dp).testTag("pause_button")
+            ) {
+                Icon(
+                    imageVector = if (state.status == GameStateStatus.PAUSED) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    contentDescription = "Pause",
+                    tint = NeonCyan
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        // Thin capture-progress strip with the current % and target
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val progress = (state.capturedPercentage / 100.0).toFloat().coerceIn(0f, 1f)
+            val targetProgress = (state.targetPercentage / 100.0).toFloat().coerceIn(0f, 1f)
+            val hasSucceeded = state.capturedPercentage >= state.targetPercentage
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black.copy(alpha = 0.45f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress)
+                        .background(Brush.horizontalGradient(colors = listOf(NeonCyan, NeonMagenta)))
+                )
+                // Target tick, placed proportionally along the bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(targetProgress)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .width(2.dp)
+                            .background(NeonYellow)
+                    )
+                }
+            }
+
+            // Active power-up effect chips live here, off the field
+            if (state.shieldActive) EffectChip("SHIELD", NeonCyan)
+            if (state.freezeRemaining > 0) EffectChip("FRZ ${state.freezeRemaining.toInt() + 1}", Color(0xFF9AD8FF))
+            if (state.slowRemaining > 0) EffectChip("SLW ${state.slowRemaining.toInt() + 1}", NeonYellow)
+
+            Text(
+                text = String.format("%.1f%%", state.capturedPercentage),
+                color = if (hasSucceeded) NeonGreen else NeonCyan,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "/${state.targetPercentage.toInt()}%",
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }
@@ -626,7 +648,8 @@ fun HUDHeader(
 @Composable
 fun Playfield(
     state: GameUiState,
-    onDirectionChanged: (Direction) -> Unit
+    onDirectionChanged: (Direction) -> Unit,
+    onFieldSized: (Float) -> Unit = {}
 ) {
     // Independent frame clock. Reading this inside the Canvas makes it redraw every
     // frame, so effect animations (capture flash, crash shake, enemy pulsing) keep
@@ -718,10 +741,17 @@ fun Playfield(
 
     Box(
         modifier = Modifier
+            // Fill ALL remaining screen space. The grid itself is generated to match
+            // this box's aspect ratio (reported below), so cells stay square while
+            // the field runs edge-to-edge.
             .fillMaxSize()
-            .aspectRatio(state.gridWidth.toFloat() / state.gridHeight.toFloat(), matchHeightConstraintsFirst = true)
-            .border(2.dp, JungleBorder, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
+            .onSizeChanged { sz ->
+                if (sz.width > 0 && sz.height > 0) {
+                    onFieldSized(sz.width.toFloat() / sz.height.toFloat())
+                }
+            }
+            .border(1.5.dp, JungleBorder, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
             // Dark, mostly-opaque panel so the jungle bleeds in only slightly and gameplay stays readable
             .background(JunglePanel)
             .pointerInput(Unit) {
@@ -965,21 +995,43 @@ fun Playfield(
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
-                    val bob = (sin(now / 180.0 + enemy.id) * cellMin * 0.08).toFloat()
                     val flip = enemy.vx < 0
+
+                    // Walk-cycle gait: cadence and amplitude scale with how fast the
+                    // spider is actually moving, so it visibly scuttles instead of
+                    // sliding. Each enemy's id de-syncs its phase from the others.
+                    val speedNorm = (speed / 10f).coerceIn(0f, 1f)
+                    val gaitHz = 2.0 + 5.0 * speedNorm
+                    val phase = (now / 1000.0 * gaitHz * 2.0 * Math.PI + enemy.id * 1.7)
+                    val wobbleDeg = (sin(phase) * (2.0 + 5.0 * speedNorm)).toFloat()
+                    val stretch = 1f + (0.025f + 0.045f * speedNorm) * sin(phase * 2.0).toFloat()
+                    val bob = (sin(phase) * cellMin * (0.03 + 0.06 * speedNorm)).toFloat()
+
+                    // Jumpers physically leave the ground mid-leap: body rises, shadow shrinks
+                    val lift = (leapScale - 1f) / 0.6f
+                    val spriteLong = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale
+                    val bodyCenter = center + Offset(0f, bob - lift * cellMin * 1.1f)
+
+                    drawGroundShadow(
+                        center = center + Offset(0f, cellMin * 0.75f),
+                        width = spriteLong * 0.55f,
+                        lift = lift
+                    )
                     if (sprite != null) {
                         drawSprite(
                             image = sprite,
-                            center = center + Offset(0f, bob),
-                            targetLongSide = cellMin * ENEMY_SPRITE_CELLS * leapScale * sizeScale,
-                            rotationDeg = 0f,
+                            center = bodyCenter,
+                            targetLongSide = spriteLong,
+                            rotationDeg = wobbleDeg,
                             flipX = flip,
-                            colorFilter = tint
+                            colorFilter = tint,
+                            scaleX = stretch,
+                            scaleY = 1f / stretch
                         )
                     } else {
                         // Asset failed to decode: draw a simple spider so gameplay continues
                         drawFallbackSpider(
-                            center = center + Offset(0f, bob),
+                            center = bodyCenter,
                             radius = cellMin * 0.85f * leapScale * sizeScale,
                             color = glow
                         )
@@ -1009,14 +1061,30 @@ fun Playfield(
                         Direction.NONE -> 0f to false
                     }
 
+                    // Inchworm crawl cycle while moving: the body rhythmically stretches
+                    // and contracts along its own length with a slight waddle; at rest it
+                    // settles into a gentle idle "breathing" so it never looks frozen.
+                    val moving = state.playerDirection != Direction.NONE &&
+                        state.status == GameStateStatus.RUNNING
+                    val crawlPhase = now / 1000.0 * 2.0 * Math.PI * (if (moving) 4.5 else 1.2)
+                    val crawlAmp = if (moving) 0.085f else 0.02f
+                    val stretch = 1f + crawlAmp * sin(crawlPhase).toFloat()
+                    val waddleDeg = if (moving) (sin(crawlPhase * 0.5) * 2.5).toFloat() else 0f
+
+                    drawGroundShadow(
+                        center = headCenter + Offset(0f, cellMin * 0.62f),
+                        width = cellMin * PLAYER_SPRITE_CELLS * 0.6f
+                    )
                     drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
                     if (caterpillarSprite != null) {
                         drawSprite(
                             image = caterpillarSprite,
                             center = headCenter,
                             targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
-                            rotationDeg = rotationDeg,
-                            flipX = flipX
+                            rotationDeg = rotationDeg + waddleDeg,
+                            flipX = flipX,
+                            scaleX = stretch,
+                            scaleY = 1f - (stretch - 1f) * 0.7f
                         )
                     } else {
                         // Asset failed to decode: draw a simple caterpillar so gameplay continues
@@ -1050,116 +1118,6 @@ fun Playfield(
             }
         }
 
-        // Floating HUD Overlay showing real-time statistics
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(8.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(ArcadeBgDark.copy(alpha = 0.85f))
-                .border(1.5.dp, NeonPurple.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .testTag("real_time_hud_overlay"),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Level
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Layers,
-                    contentDescription = "Level Icon",
-                    tint = NeonCyan,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "L${state.levelNumber}",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Divider
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(12.dp)
-                    .background(NeonPurple.copy(alpha = 0.5f))
-            )
-
-            // Percentage Captured
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.GridView,
-                    contentDescription = "Capture Icon",
-                    tint = NeonGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = String.format("%.1f%%", state.capturedPercentage),
-                    color = NeonCyan,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Divider
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(12.dp)
-                    .background(NeonPurple.copy(alpha = 0.5f))
-            )
-
-            // Remaining Lives
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = "Lives Icon",
-                    tint = NeonMagenta,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "x${state.lives}",
-                    color = NeonMagenta,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Combo multiplier + active power-up effects (top-left of the playfield)
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (state.scoreMultiplier > 1) {
-                Text(
-                    text = "COMBO x${state.scoreMultiplier}",
-                    color = NeonYellow,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-            if (state.shieldActive) EffectChip("SHIELD", NeonCyan)
-            if (state.freezeRemaining > 0) EffectChip("FREEZE ${state.freezeRemaining.toInt() + 1}s", Color(0xFF9AD8FF))
-            if (state.slowRemaining > 0) EffectChip("SLOW ${state.slowRemaining.toInt() + 1}s", NeonYellow)
-        }
     }
 }
 
@@ -1194,13 +1152,13 @@ fun ControlPanel(
         // D-Pad Grid matching tactile Sleek Interface layout
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Row 1: UP
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(46.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (currentDirection == Direction.UP) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
                     .border(
@@ -1215,20 +1173,20 @@ fun ControlPanel(
                     imageVector = Icons.Default.KeyboardArrowUp,
                     contentDescription = "Move Up",
                     tint = if (currentDirection == Direction.UP) NeonCyan else NeonPurple,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
 
             // Row 2: LEFT, STOP, RIGHT
             Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // LEFT
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(46.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (currentDirection == Direction.LEFT) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
                     .border(
@@ -1243,7 +1201,7 @@ fun ControlPanel(
                         imageVector = Icons.Default.KeyboardArrowLeft,
                         contentDescription = "Move Left",
                         tint = if (currentDirection == Direction.LEFT) NeonCyan else NeonPurple,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -1251,7 +1209,7 @@ fun ControlPanel(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(46.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (currentDirection == Direction.NONE) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
                     .border(
@@ -1273,7 +1231,7 @@ fun ControlPanel(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(46.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (currentDirection == Direction.RIGHT) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
                     .border(
@@ -1288,7 +1246,7 @@ fun ControlPanel(
                         imageVector = Icons.Default.KeyboardArrowRight,
                         contentDescription = "Move Right",
                         tint = if (currentDirection == Direction.RIGHT) NeonCyan else NeonPurple,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -1297,7 +1255,7 @@ fun ControlPanel(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(46.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (currentDirection == Direction.DOWN) NeonPurple.copy(alpha = 0.25f) else Color(0xFF14142B))
                     .border(
@@ -1312,7 +1270,7 @@ fun ControlPanel(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "Move Down",
                     tint = if (currentDirection == Direction.DOWN) NeonCyan else NeonPurple,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
