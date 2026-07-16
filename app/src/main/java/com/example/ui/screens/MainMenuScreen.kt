@@ -1,6 +1,13 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,15 +26,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.ui.theme.*
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
  * Modern, clean, and polished Start Menu for TerraFill.
@@ -45,29 +60,48 @@ fun MainMenuScreen(
 ) {
     var showResetDialog by remember { mutableStateOf(false) }
 
-    // Modern clean gradient background
+    // Deep jungle canopy gradient - also the fallback when the photo can't load
     val bgGradient = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF0D0D1E), // Ultra dark indigo
-            Color(0xFF14142B), // Dark premium purple
-            Color(0xFF0D0D1E)
-        )
+        colors = listOf(JungleDusk, JungleDeep, Color(0xFF020B04))
     )
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(bgGradient)
-            .padding(24.dp),
+            .background(bgGradient),
         contentAlignment = Alignment.Center
     ) {
         val isWide = maxWidth > 650.dp
+
+        // Real jungle artwork behind everything, darkened for readability
+        val jungleBg = rememberSafeImage(R.drawable.bg_menu, sampleSize = 2)
+        if (jungleBg != null) {
+            Image(
+                bitmap = jungleBg,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            JungleDeep.copy(alpha = 0.45f),
+                            JungleDeep.copy(alpha = 0.88f)
+                        )
+                    )
+                )
+        )
 
         if (isWide) {
             // Adaptive wide layout: columns side-by-side
             Row(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(24.dp)
                     .widthIn(max = 1000.dp),
                 horizontalArrangement = Arrangement.spacedBy(32.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -79,6 +113,7 @@ fun MainMenuScreen(
                     verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     TitleHeader()
+                    JungleHero()
                     PlayCard(
                         highestUnlockedLevel = highestUnlockedLevel,
                         levelStars = levelStars,
@@ -104,12 +139,15 @@ fun MainMenuScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(24.dp)
                     .verticalScroll(rememberScrollState())
                     .widthIn(max = 450.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 TitleHeader()
+
+                JungleHero()
 
                 PlayCard(
                     highestUnlockedLevel = highestUnlockedLevel,
@@ -132,7 +170,7 @@ fun MainMenuScreen(
             onDismissRequest = { showResetDialog = false },
             title = {
                 Text(
-                    text = "RESET TERMINAL DATA?",
+                    text = "RESET ALL PROGRESS?",
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = NeonMagenta
@@ -161,12 +199,176 @@ fun MainMenuScreen(
                     Text("CANCEL", color = NeonCyan, fontFamily = FontFamily.Monospace)
                 }
             },
-            containerColor = ArcadeCardDark,
+            containerColor = Color(0xFF0F2413),
             textContentColor = Color.White,
             titleContentColor = NeonMagenta
         )
     }
 }
+
+/**
+ * Animated jungle diorama for the main menu: the caterpillar hero rests on a big
+ * leaf spitting a silk strand, while spiders slowly descend and rise on threads
+ * from the canopy above. Pure Canvas + the real character art - if any sprite
+ * fails to decode it is simply omitted, never a crash.
+ */
+@Composable
+private fun JungleHero(modifier: Modifier = Modifier) {
+    // Prefer the hand-made hero artwork; the animated canvas scene below is the
+    // fallback when the image asset is missing or corrupt.
+    val heroArt = rememberSafeImage(R.drawable.menu_hero)
+    if (heroArt != null) {
+        Image(
+            bitmap = heroArt,
+            contentDescription = "The caterpillar facing the jungle spiders",
+            contentScale = ContentScale.FillWidth,
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, LeafGreen.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+        )
+        return
+    }
+    val caterpillar = rememberSafeImage(R.drawable.sprite_caterpillar)
+    val spiderRed = rememberSafeImage(R.drawable.sprite_spider_red)
+    val spiderBlue = rememberSafeImage(R.drawable.sprite_spider_blue)
+    val spiderGreen = rememberSafeImage(R.drawable.sprite_spider)
+
+    // One slow master clock (0..1 over 8s) drives every motion in the scene
+    val t by rememberInfiniteTransition(label = "hero")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(8000, easing = LinearEasing)),
+            label = "heroClock"
+        )
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(170.dp)
+    ) {
+        val w = size.width
+        val h = size.height
+        val tau = (2.0 * PI).toFloat()
+
+        // ---- Spiders hanging from the canopy, bobbing on silk threads ----
+        data class Hanging(
+            val fx: Float,      // horizontal position (fraction of width)
+            val depth: Float,   // resting depth (fraction of height)
+            val bob: Float,     // bob amplitude (fraction of height)
+            val speed: Float,   // bob cycles per master clock loop
+            val size: Float     // sprite long side (fraction of width)
+        )
+        val spiders = listOf(
+            Triple(Hanging(0.16f, 0.34f, 0.10f, 2f, 0.20f), spiderRed, false),
+            Triple(Hanging(0.50f, 0.20f, 0.07f, 3f, 0.15f), spiderGreen, true),
+            Triple(Hanging(0.84f, 0.42f, 0.12f, 1.5f, 0.22f), spiderBlue, false)
+        )
+        for ((hang, sprite, flip) in spiders) {
+            val bodyY = (hang.depth + hang.bob * sin(t * tau * hang.speed + hang.fx * 9f)) * h
+            val x = hang.fx * w + sin(t * tau * hang.speed * 0.5f + hang.fx * 4f) * w * 0.008f
+            // Silk thread from the top edge down to the spider
+            drawLine(
+                color = Color.White.copy(alpha = 0.5f),
+                start = Offset(x, 0f),
+                end = Offset(x, bodyY),
+                strokeWidth = 2.2f,
+                cap = StrokeCap.Round
+            )
+            val longSide = hang.size * w
+            if (sprite != null) {
+                drawSpriteCentered(
+                    image = sprite,
+                    center = Offset(x, bodyY + longSide * 0.22f),
+                    targetLongSide = longSide,
+                    rotationDeg = sin(t * tau * hang.speed + hang.fx * 9f) * 5f,
+                    flipX = flip
+                )
+            }
+        }
+
+        // ---- The big leaf perch (drawn, so it always exists) ----
+        val leafTip = Offset(w * 0.66f, h * 0.72f)
+        val leafStem = Offset(w * 0.06f, h * 0.90f)
+        val leaf = Path().apply {
+            moveTo(leafStem.x, leafStem.y)
+            quadraticTo(w * 0.30f, h * 0.58f, leafTip.x, leafTip.y)
+            quadraticTo(w * 0.34f, h * 1.02f, leafStem.x, leafStem.y)
+            close()
+        }
+        drawPath(
+            leaf,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF6DBB4A), Color(0xFF2E6B22)),
+                start = Offset(leafStem.x, h * 0.6f),
+                end = leafTip
+            )
+        )
+        // Midrib vein
+        drawLine(
+            color = Color(0xFF1E4A16),
+            start = leafStem,
+            end = Offset(leafTip.x - w * 0.02f, leafTip.y),
+            strokeWidth = 3f,
+            cap = StrokeCap.Round
+        )
+
+        // ---- The caterpillar hero on the leaf, gently breathing ----
+        val catBreath = sin(t * tau * 4f) * h * 0.012f
+        val catCenter = Offset(w * 0.30f, h * 0.70f + catBreath)
+        val catLong = w * 0.30f
+        if (caterpillar != null) {
+            // Art faces LEFT; flip so the hero faces the spiders on the right
+            drawSpriteCentered(
+                image = caterpillar,
+                center = catCenter,
+                targetLongSide = catLong,
+                rotationDeg = sin(t * tau * 2f) * 2f,
+                flipX = true
+            )
+        }
+
+        // ---- Silk spit: a dotted strand shooting toward the lowest spider ----
+        val mouth = Offset(catCenter.x + catLong * 0.42f, catCenter.y - catLong * 0.05f)
+        val target = Offset(w * 0.84f, h * 0.46f)
+        val mid = Offset((mouth.x + target.x) / 2f, minOf(mouth.y, target.y) - h * 0.10f)
+        // Strand re-fires twice per clock loop
+        val shot = (t * 2f) % 1f
+        val reach = (shot * 1.25f).coerceAtMost(1f)
+        val dots = 14
+        for (i in 0..(dots * reach).toInt()) {
+            val f = i / dots.toFloat()
+            // Quadratic bezier point
+            val a = lerp(mouth, mid, f)
+            val b = lerp(mid, target, f)
+            val p = lerp(a, b, f)
+            drawCircle(
+                color = Color.White.copy(alpha = 0.85f - f * 0.35f),
+                radius = 2.6f - f * 1.2f,
+                center = p
+            )
+        }
+        // Tiny web puff where the strand lands
+        if (reach >= 1f) {
+            val puff = ((shot - 0.8f) / 0.2f).coerceIn(0f, 1f)
+            for (k in 0 until 3) {
+                val ang = k * (tau / 6f) + 0.4f
+                drawLine(
+                    color = Color.White.copy(alpha = 0.8f * puff),
+                    start = target - Offset(kotlin.math.cos(ang), sin(ang)) * (7f * puff),
+                    end = target + Offset(kotlin.math.cos(ang), sin(ang)) * (7f * puff),
+                    strokeWidth = 1.6f,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+    }
+}
+
+/** Linear interpolation between two points. */
+private fun lerp(a: Offset, b: Offset, f: Float): Offset =
+    Offset(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f)
 
 @Composable
 private fun TitleHeader() {
@@ -185,8 +387,8 @@ private fun TitleHeader() {
             textAlign = TextAlign.Center
         )
         Text(
-            text = "GRID TERRITORY EXPANSION",
-            color = NeonCyan,
+            text = "CLAIM THE JUNGLE, OUTSMART THE SPIDERS",
+            color = JungleCoast,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
@@ -208,8 +410,8 @@ private fun PlayCard(
     val continueLevel = lastPlayedLevel.coerceIn(1, highestUnlockedLevel)
     val isFreshStart = highestUnlockedLevel == 1 && continueLevel == 1
     Card(
-        colors = CardDefaults.cardColors(containerColor = ArcadeCardDark),
-        border = BorderStroke(1.dp, NeonPurple.copy(alpha = 0.3f)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A1F0E).copy(alpha = 0.88f)),
+        border = BorderStroke(1.dp, LeafGreen.copy(alpha = 0.45f)),
         shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -219,7 +421,7 @@ private fun PlayCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "SYSTEM CONTROLS",
+                text = "EXPEDITION",
                 color = Color.White.copy(alpha = 0.8f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
@@ -231,8 +433,8 @@ private fun PlayCard(
             Button(
                 onClick = { onStartGame(continueLevel) },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = NeonCyan,
-                    contentColor = Color.Black
+                    containerColor = Color(0xFF8CD44F),
+                    contentColor = Color(0xFF07210B)
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -319,8 +521,8 @@ private fun LevelBadge(
     onClick: () -> Unit
 ) {
     val borderColor = when {
-        isCurrent -> NeonCyan
-        isUnlocked -> NeonPurple.copy(alpha = 0.6f)
+        isCurrent -> NeonYellow
+        isUnlocked -> LeafGreen.copy(alpha = 0.7f)
         else -> Color.White.copy(alpha = 0.05f)
     }
 
@@ -329,7 +531,7 @@ private fun LevelBadge(
             .size(52.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (isUnlocked) Color(0xFF1E1E3F) else Color(0xFF0F0F1A)
+                if (isUnlocked) Color(0xFF14350F) else Color(0xFF0A1607)
             )
             .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
             .clickable(enabled = isUnlocked, onClick = onClick)
@@ -340,7 +542,7 @@ private fun LevelBadge(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "$level",
-                    color = if (isCurrent) NeonCyan else NeonGreen,
+                    color = if (isCurrent) NeonYellow else Color(0xFF8CD44F),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
@@ -376,8 +578,8 @@ private fun HighScoresCard(
     val totalScore = highScores.values.sum()
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = ArcadeCardDark),
-        border = BorderStroke(1.dp, NeonPurple.copy(alpha = 0.3f)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A1F0E).copy(alpha = 0.88f)),
+        border = BorderStroke(1.dp, LeafGreen.copy(alpha = 0.45f)),
         shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth()
     ) {

@@ -61,22 +61,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/**
- * Loads an image resource, tolerating corrupt/undecodable data: returns null instead
- * of throwing. Art assets have repeatedly been corrupted by external tooling, and a
- * broken picture must degrade the visuals - never crash the game.
- */
-@Composable
-private fun rememberSafeImage(resId: Int, sampleSize: Int = 1): ImageBitmap? {
-    val context = LocalContext.current
-    return remember(resId) {
-        runCatching {
-            val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            android.graphics.BitmapFactory.decodeResource(context.resources, resId, options)?.asImageBitmap()
-        }.getOrNull()
-    }
-}
-
 /** Fallback spider drawn when a sprite asset fails to decode (body, legs, eyes). */
 private fun DrawScope.drawFallbackSpider(center: Offset, radius: Float, color: Color) {
     for (side in intArrayOf(-1, 1)) {
@@ -312,7 +296,7 @@ fun GameScreen(
         // gradient instead of crashing.
         // Downsample by 2: full-screen backdrop doesn't need full resolution, and this
         // halves peak memory on low-RAM phones.
-        val jungleBg = rememberSafeImage(R.drawable.bg_jungle, sampleSize = 2)
+        val jungleBg = rememberSafeImage(R.drawable.bg_game, sampleSize = 2)
         if (jungleBg != null) {
             Image(
                 bitmap = jungleBg,
@@ -995,7 +979,8 @@ fun Playfield(
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
-                    val flip = enemy.vx < 0
+                    // New spider art faces LEFT natively; mirror when moving right
+                    val flip = enemy.vx > 0
 
                     // Walk-cycle gait: cadence and amplitude scale with how fast the
                     // spider is actually moving, so it visibly scuttles instead of
