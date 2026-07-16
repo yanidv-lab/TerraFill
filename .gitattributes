@@ -1,0 +1,15 @@
+# Binary files must never be processed as text. External tooling (AI Studio)
+# has repeatedly corrupted images and jars by round-tripping them through a
+# text encoder; marking them binary tells git (and well-behaved tools) to keep
+# their bytes exactly as-is - no EOL conversion, no charset re-encoding.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.jar binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.keystore binary
+*.jks binary
