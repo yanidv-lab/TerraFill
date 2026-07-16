@@ -200,8 +200,21 @@ class SoundManager(context: Context) {
     }
 
     fun startMusic() {
-        if (!musicEnabled) return
-        if (musicJob != null) return
+        if (!soundEnabled) return
+        // Re-arm music explicitly: pauseMusic() (called on level complete) sets
+        // musicEnabled = false, and without this line music would never start
+        // again on any later level.
+        musicEnabled = true
+        // The synth loop from a previous level may still be alive but paused -
+        // just resume its track instead of spawning a second loop.
+        if (musicJob != null) {
+            try {
+                musicTrack?.play()
+            } catch (e: Exception) {
+                Log.e("SoundManager", "Failed to resume music track", e)
+            }
+            return
+        }
 
         musicJob = scope.launch {
             val bufferSize = 512

@@ -61,22 +61,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/**
- * Loads an image resource, tolerating corrupt/undecodable data: returns null instead
- * of throwing. Art assets have repeatedly been corrupted by external tooling, and a
- * broken picture must degrade the visuals - never crash the game.
- */
-@Composable
-private fun rememberSafeImage(resId: Int, sampleSize: Int = 1): ImageBitmap? {
-    val context = LocalContext.current
-    return remember(resId) {
-        runCatching {
-            val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            android.graphics.BitmapFactory.decodeResource(context.resources, resId, options)?.asImageBitmap()
-        }.getOrNull()
-    }
-}
-
 /** Fallback spider drawn when a sprite asset fails to decode (body, legs, eyes). */
 private fun DrawScope.drawFallbackSpider(center: Offset, radius: Float, color: Color) {
     for (side in intArrayOf(-1, 1)) {

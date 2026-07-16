@@ -24,3 +24,6 @@ val JunglePanel = Color(0xFF0A1A0E).copy(alpha = 0.82f)  // dark mossy panel, sl
 val JungleBorder = Color(0xFFB98A3C)                     // weathered gold/temple stone frame
 val JungleCaptured = Color(0xFF8CD44F)                   // reclaimed/cleared land (bright leaf green)
 val JungleCoast = Color(0xFFFFE9A8)                      // sunlit edge where cleared meets wild
+val JungleDeep = Color(0xFF06180A)                       // near-black forest floor
+val JungleDusk = Color(0xFF0D2E14)                       // deep canopy green
+val LeafGreen = Color(0xFF57A63E)                        // healthy leaf green
