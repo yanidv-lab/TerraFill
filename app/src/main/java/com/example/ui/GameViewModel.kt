@@ -259,12 +259,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Starts the menu soundtrack (called when a menu screen is shown). */
+    fun playMenuMusic() = sound.startMenuMusic()
+
     /** Pauses background music (e.g. when the app goes to the background). */
     fun pauseAudio() = sound.pauseMusic()
 
-    /** Resumes background music if the game is currently running. */
+    /** Resumes background music if the game is running, or menu music on menus. */
     fun resumeAudio() {
-        if (engine?.status == GameStateStatus.RUNNING) sound.resumeMusic()
+        if (engine?.status == GameStateStatus.RUNNING) {
+            sound.resumeMusic()
+        } else {
+            sound.resumeMenuMusic()
+        }
     }
 
     /** Mutes/unmutes all game audio and reflects the new state in the UI. */
