@@ -13,7 +13,10 @@ import com.example.ui.GameViewModel
 import com.example.ui.screens.GameOverScreen
 import com.example.ui.screens.GameScreen
 import com.example.ui.screens.LevelCompleteScreen
+import com.example.ui.screens.LevelSelectScreen
 import com.example.ui.screens.MainMenuScreen
+import com.example.ui.screens.OptionsScreen
+import com.example.ui.screens.ScoresScreen
 
 /**
  * Orchestrates the screens and type-safe arguments inside the Jetpack Compose navigation structure.
@@ -47,7 +50,44 @@ fun NavGraph(
                 },
                 onResetProgress = {
                     viewModel.resetAllProgress()
-                }
+                },
+                onPlay = { navController.navigate(Screen.LevelSelect.route) },
+                onOptions = { navController.navigate(Screen.Options.route) },
+                onScores = { navController.navigate(Screen.Scores.route) }
+            )
+        }
+
+        // 1b. PLAY / LEVEL SELECT SCREEN
+        composable(route = Screen.LevelSelect.route) {
+            val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
+            LevelSelectScreen(
+                highestUnlockedLevel = highestUnlockedLevel,
+                levelStars = levelStars,
+                lastPlayedLevel = lastPlayed,
+                onStartGame = { level ->
+                    navController.navigate(Screen.Game.createRoute(level))
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 1c. OPTIONS SCREEN
+        composable(route = Screen.Options.route) {
+            val ui by viewModel.uiState.collectAsStateWithLifecycle()
+            OptionsScreen(
+                soundEnabled = ui.soundEnabled,
+                onToggleSound = { viewModel.toggleSound() },
+                onResetProgress = { viewModel.resetAllProgress() },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 1d. SCORE SCREEN
+        composable(route = Screen.Scores.route) {
+            ScoresScreen(
+                highScores = highScores,
+                levelStars = levelStars,
+                onBack = { navController.popBackStack() }
             )
         }
 
