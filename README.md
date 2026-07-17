@@ -37,3 +37,9 @@ Engine tests live in `engine/src/test/kotlin/` and cover movement, trail drawing
 ```
 
 Includes Robolectric/Compose UI tests and a Roborazzi screenshot test.
+
+## License
+
+**All rights reserved.** This repository is public for the author's development
+workflow only — see [LICENSE](LICENSE). No permission is granted to copy,
+modify, republish, or monetize this game or its assets.
