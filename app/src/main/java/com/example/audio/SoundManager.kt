@@ -38,9 +38,32 @@ class SoundManager(context: Context) {
     private val sfxQueue = ConcurrentLinkedQueue<SfxEnvelope>()
     private var sfxJob: Job? = null
     
-    // Background music loop job
+    // Background music loop job (procedural synth - fallback only)
     private var musicJob: Job? = null
     private var musicTrack: AudioTrack? = null
+
+    // Real soundtrack playback. If the bundled track can't be created/decoded we
+    // permanently fall back to the procedural synth loop for this process.
+    private var musicPlayer: android.media.MediaPlayer? = null
+    private var musicFileBroken = false
+
+    /** Lazily creates the looping MediaPlayer for the game soundtrack, or null. */
+    private fun obtainMusicPlayer(): android.media.MediaPlayer? {
+        if (musicFileBroken) return null
+        musicPlayer?.let { return it }
+        val created = try {
+            android.media.MediaPlayer.create(appContext, com.example.R.raw.music_game)?.apply {
+                isLooping = true
+                setVolume(0.6f, 0.6f)
+            }
+        } catch (e: Exception) {
+            Log.e("SoundManager", "Failed to create music player, using synth fallback", e)
+            null
+        }
+        if (created == null) musicFileBroken = true
+        musicPlayer = created
+        return created
+    }
 
     init {
         startSfxLoop()
@@ -205,6 +228,19 @@ class SoundManager(context: Context) {
         // musicEnabled = false, and without this line music would never start
         // again on any later level.
         musicEnabled = true
+
+        // Preferred path: the real soundtrack from res/raw, looping.
+        val player = obtainMusicPlayer()
+        if (player != null) {
+            try {
+                if (!player.isPlaying) player.start()
+            } catch (e: Exception) {
+                Log.e("SoundManager", "Failed to start music player", e)
+            }
+            return
+        }
+
+        // Fallback path: procedural chiptune synth.
         // The synth loop from a previous level may still be alive but paused -
         // just resume its track instead of spawning a second loop.
         if (musicJob != null) {
@@ -366,6 +402,9 @@ class SoundManager(context: Context) {
     fun pauseMusic() {
         musicEnabled = false
         try {
+            if (musicPlayer?.isPlaying == true) musicPlayer?.pause()
+        } catch (e: Exception) {}
+        try {
             musicTrack?.pause()
         } catch (e: Exception) {}
     }
@@ -373,6 +412,13 @@ class SoundManager(context: Context) {
     fun resumeMusic() {
         if (!soundEnabled) return
         musicEnabled = true
+        val player = if (musicFileBroken) null else musicPlayer
+        if (player != null) {
+            try {
+                if (!player.isPlaying) player.start()
+            } catch (e: Exception) {}
+            return
+        }
         try {
             musicTrack?.play()
         } catch (e: Exception) {}
@@ -382,6 +428,10 @@ class SoundManager(context: Context) {
     }
 
     fun stopMusic() {
+        try {
+            musicPlayer?.pause()
+            musicPlayer?.seekTo(0)
+        } catch (e: Exception) {}
         musicJob?.cancel()
         musicJob = null
         try {
@@ -405,6 +455,10 @@ class SoundManager(context: Context) {
 
     fun release() {
         stopMusic()
+        try {
+            musicPlayer?.release()
+        } catch (e: Exception) {}
+        musicPlayer = null
         sfxJob?.cancel()
         sfxJob = null
         sfxQueue.clear()

@@ -73,6 +73,43 @@ class AssetIntegrityTest {
         )
     }
 
+    private fun looksLikeMp3(file: File): Boolean {
+        val m = magic(file, 3)
+        if (m.size < 3) return false
+        if (m[0] == 'I'.code.toByte() && m[1] == 'D'.code.toByte() && m[2] == '3'.code.toByte()) return true
+        // Raw MPEG frame sync: 11 set bits
+        return m[0] == 0xFF.toByte() && (m[1].toInt() and 0xE0) == 0xE0
+    }
+
+    private fun looksLikeOgg(file: File): Boolean {
+        val m = magic(file, 4)
+        return m.size == 4 && m.contentEquals(byteArrayOf('O'.code.toByte(), 'g'.code.toByte(), 'g'.code.toByte(), 'S'.code.toByte()))
+    }
+
+    private fun looksLikeWav(file: File): Boolean {
+        val m = magic(file, 4)
+        return m.size == 4 && m.contentEquals(byteArrayOf('R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte()))
+    }
+
+    @Test
+    fun `raw audio assets have valid binary headers`() {
+        val dir = locate("src/main/res/raw") ?: return // no audio bundled in this layout
+        val audio = dir.listFiles { f -> f.extension in setOf("mp3", "ogg", "wav") }.orEmpty()
+        val corrupt = audio.filter { f ->
+            when (f.extension) {
+                "mp3" -> !looksLikeMp3(f)
+                "ogg" -> !looksLikeOgg(f)
+                else -> !looksLikeWav(f)
+            }
+        }
+        assertTrue(
+            "CORRUPT audio assets detected (likely mangled by an external text encoder - " +
+                "restore from the last good git commit, do not ship): " +
+                corrupt.joinToString { it.name },
+            corrupt.isEmpty()
+        )
+    }
+
     @Test
     fun `gradle wrapper jar is a valid archive`() {
         val jar = locate("../gradle/wrapper/gradle-wrapper.jar")
