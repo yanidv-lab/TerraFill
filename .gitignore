@@ -26,3 +26,9 @@ debug.keystore.base64
 
 # Google IDE (Antigravity) local state - huge machine-generated dumps
 .antigravity/
+
+# Release signing material - must NEVER be committed to a public repo.
+# Anyone holding the upload keystore + password could publish updates as you.
+*.jks
+*.keystore
+keystore.properties
