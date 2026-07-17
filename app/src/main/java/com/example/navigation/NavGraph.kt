@@ -40,6 +40,10 @@ fun NavGraph(
         composable(route = Screen.MainMenu.route) {
             val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
 
+            // Menu soundtrack starts here and keeps playing through the sub-screens;
+            // entering a level switches to the game track automatically.
+            LaunchedEffect(Unit) { viewModel.playMenuMusic() }
+
             MainMenuScreen(
                 highestUnlockedLevel = highestUnlockedLevel,
                 highScores = highScores,

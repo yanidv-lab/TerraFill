@@ -240,9 +240,24 @@ fun GameScreen(
     onFieldSized: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // 1. Frame-synced Game Loop driving the GameEngine simulation
-    LaunchedEffect(state.status) {
-        if (state.status == GameStateStatus.RUNNING) {
+    // Level-intro banner: LEVEL N + target, with a 3-2-1-GO countdown. Counts
+    // 3..1 (sim held), then 0 shows "GO!" while play begins, then -1 hides it.
+    var introCount by remember { mutableStateOf(3) }
+    LaunchedEffect(state.levelNumber) {
+        introCount = 3
+        while (introCount > 0) {
+            kotlinx.coroutines.delay(700)
+            introCount--
+        }
+        kotlinx.coroutines.delay(600)
+        introCount = -1
+    }
+    val introHoldsSim = introCount > 0
+
+    // 1. Frame-synced Game Loop driving the GameEngine simulation.
+    // Held during the intro countdown so the clock and spiders wait for the player.
+    LaunchedEffect(state.status, introHoldsSim) {
+        if (state.status == GameStateStatus.RUNNING && !introHoldsSim) {
             var lastTimeNanos = System.nanoTime()
             while (true) {
                 withFrameNanos { frameTimeNanos ->
@@ -346,6 +361,64 @@ fun GameScreen(
                     onDirectionChanged = onDirectionChanged,
                     onFieldSized = onFieldSized
                 )
+
+                // Level-intro banner overlay: level number, goal, and the countdown
+                if (introCount >= 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Color.Black.copy(alpha = if (introCount > 0) 0.5f else 0.15f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "LEVEL ${state.levelNumber}",
+                                color = NeonYellow,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 4.sp
+                            )
+                            Text(
+                                text = "CLAIM ${state.targetPercentage.toInt()}% OF THE JUNGLE",
+                                color = JungleCoast,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            // The count itself pops in on every change
+                            key(introCount) {
+                                val pop = remember {
+                                    androidx.compose.animation.core.Animatable(1.9f)
+                                }
+                                LaunchedEffect(Unit) {
+                                    pop.animateTo(
+                                        1f,
+                                        androidx.compose.animation.core.spring(dampingRatio = 0.45f)
+                                    )
+                                }
+                                Text(
+                                    text = if (introCount > 0) "$introCount" else "GO!",
+                                    color = if (introCount > 0) Color.White else NeonGreen,
+                                    fontSize = 56.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = pop.value
+                                        scaleY = pop.value
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // One-line touch tutorial on the first level, fading away on its own.
                 // With no visible buttons, this is the only teaching the game needs.

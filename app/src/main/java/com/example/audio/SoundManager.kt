@@ -38,9 +38,74 @@ class SoundManager(context: Context) {
     private val sfxQueue = ConcurrentLinkedQueue<SfxEnvelope>()
     private var sfxJob: Job? = null
     
-    // Background music loop job
+    // Background music loop job (procedural synth - fallback only)
     private var musicJob: Job? = null
     private var musicTrack: AudioTrack? = null
+
+    // Real soundtrack playback, one looping player per context. If a bundled track
+    // can't be created/decoded, that channel permanently falls back (game: synth
+    // loop; menu: silence) for the process.
+    private enum class MusicChannel { NONE, MENU, GAME }
+    private var activeChannel = MusicChannel.NONE
+    private var musicPlayer: android.media.MediaPlayer? = null
+    private var musicFileBroken = false
+    private var menuPlayer: android.media.MediaPlayer? = null
+    private var menuFileBroken = false
+
+    private fun createLoopingPlayer(resId: Int, volume: Float): android.media.MediaPlayer? =
+        try {
+            android.media.MediaPlayer.create(appContext, resId)?.apply {
+                isLooping = true
+                setVolume(volume, volume)
+            }
+        } catch (e: Exception) {
+            Log.e("SoundManager", "Failed to create music player for $resId", e)
+            null
+        }
+
+    /** Lazily creates the looping MediaPlayer for the game soundtrack, or null. */
+    private fun obtainMusicPlayer(): android.media.MediaPlayer? {
+        if (musicFileBroken) return null
+        musicPlayer?.let { return it }
+        val created = createLoopingPlayer(com.example.R.raw.music_game, 0.6f)
+        if (created == null) musicFileBroken = true
+        musicPlayer = created
+        return created
+    }
+
+    /** Lazily creates the looping MediaPlayer for the menu soundtrack, or null. */
+    private fun obtainMenuPlayer(): android.media.MediaPlayer? {
+        if (menuFileBroken) return null
+        menuPlayer?.let { return it }
+        val created = createLoopingPlayer(com.example.R.raw.music_menu, 0.5f)
+        if (created == null) menuFileBroken = true
+        menuPlayer = created
+        return created
+    }
+
+    /** Plays the menu soundtrack, pausing any in-game music. Safe to call repeatedly. */
+    fun startMenuMusic() {
+        if (!soundEnabled) return
+        musicEnabled = true
+        activeChannel = MusicChannel.MENU
+        try {
+            if (musicPlayer?.isPlaying == true) musicPlayer?.pause()
+        } catch (e: Exception) {}
+        try {
+            musicTrack?.pause()
+        } catch (e: Exception) {}
+        val p = obtainMenuPlayer() ?: return
+        try {
+            if (!p.isPlaying) p.start()
+        } catch (e: Exception) {
+            Log.e("SoundManager", "Failed to start menu music", e)
+        }
+    }
+
+    /** Resumes menu music only if the menu is the active music context. */
+    fun resumeMenuMusic() {
+        if (activeChannel == MusicChannel.MENU) startMenuMusic()
+    }
 
     init {
         startSfxLoop()
@@ -205,6 +270,23 @@ class SoundManager(context: Context) {
         // musicEnabled = false, and without this line music would never start
         // again on any later level.
         musicEnabled = true
+        activeChannel = MusicChannel.GAME
+        try {
+            if (menuPlayer?.isPlaying == true) menuPlayer?.pause()
+        } catch (e: Exception) {}
+
+        // Preferred path: the real soundtrack from res/raw, looping.
+        val player = obtainMusicPlayer()
+        if (player != null) {
+            try {
+                if (!player.isPlaying) player.start()
+            } catch (e: Exception) {
+                Log.e("SoundManager", "Failed to start music player", e)
+            }
+            return
+        }
+
+        // Fallback path: procedural chiptune synth.
         // The synth loop from a previous level may still be alive but paused -
         // just resume its track instead of spawning a second loop.
         if (musicJob != null) {
@@ -366,6 +448,12 @@ class SoundManager(context: Context) {
     fun pauseMusic() {
         musicEnabled = false
         try {
+            if (musicPlayer?.isPlaying == true) musicPlayer?.pause()
+        } catch (e: Exception) {}
+        try {
+            if (menuPlayer?.isPlaying == true) menuPlayer?.pause()
+        } catch (e: Exception) {}
+        try {
             musicTrack?.pause()
         } catch (e: Exception) {}
     }
@@ -373,6 +461,17 @@ class SoundManager(context: Context) {
     fun resumeMusic() {
         if (!soundEnabled) return
         musicEnabled = true
+        if (activeChannel == MusicChannel.MENU) {
+            startMenuMusic()
+            return
+        }
+        val player = if (musicFileBroken) null else musicPlayer
+        if (player != null) {
+            try {
+                if (!player.isPlaying) player.start()
+            } catch (e: Exception) {}
+            return
+        }
         try {
             musicTrack?.play()
         } catch (e: Exception) {}
@@ -382,6 +481,10 @@ class SoundManager(context: Context) {
     }
 
     fun stopMusic() {
+        try {
+            musicPlayer?.pause()
+            musicPlayer?.seekTo(0)
+        } catch (e: Exception) {}
         musicJob?.cancel()
         musicJob = null
         try {
@@ -405,6 +508,14 @@ class SoundManager(context: Context) {
 
     fun release() {
         stopMusic()
+        try {
+            musicPlayer?.release()
+        } catch (e: Exception) {}
+        musicPlayer = null
+        try {
+            menuPlayer?.release()
+        } catch (e: Exception) {}
+        menuPlayer = null
         sfxJob?.cancel()
         sfxJob = null
         sfxQueue.clear()
