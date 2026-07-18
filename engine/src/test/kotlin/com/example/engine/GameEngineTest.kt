@@ -705,37 +705,37 @@ class GameEngineTest {
     // ---------------------------------------------------------------- adaptive field shape
 
     @Test
-    fun `default field aspect keeps the classic 40x50 grid`() {
+    fun `default field aspect yields the standard 32x40 grid`() {
         val config = LevelConfig.getConfig(1)
-        assertEquals(40, config.gridWidth)
-        assertEquals(50, config.gridHeight)
+        assertEquals(32, config.gridWidth)
+        assertEquals(40, config.gridHeight)
     }
 
     @Test
     fun `taller screens get taller grids with time scaled to the extra area`() {
-        val base = LevelConfig.getConfig(1)                    // 40x50
-        val tall = LevelConfig.getConfig(1, fieldAspect = 0.5) // 40x80
-        assertEquals(40, tall.gridWidth)
-        assertEquals(80, tall.gridHeight)
+        val base = LevelConfig.getConfig(1)                    // 32x40
+        val tall = LevelConfig.getConfig(1, fieldAspect = 0.5) // 32x64
+        assertEquals(32, tall.gridWidth)
+        assertEquals(64, tall.gridHeight)
         // 60% more cells to capture => proportionally more time
-        val expected = Math.round(base.timeLimitSeconds * (40.0 * 80.0) / (40.0 * 50.0)).toInt()
+        val expected = Math.round(base.timeLimitSeconds * (32.0 * 64.0) / (32.0 * 40.0)).toInt()
         assertEquals(expected, tall.timeLimitSeconds)
     }
 
     @Test
     fun `extreme aspect ratios are clamped to a sane grid`() {
-        assertEquals(90, LevelConfig.getConfig(1, fieldAspect = 0.1).gridHeight)
-        assertEquals(50, LevelConfig.getConfig(1, fieldAspect = 5.0).gridHeight)
+        assertEquals(72, LevelConfig.getConfig(1, fieldAspect = 0.1).gridHeight)
+        assertEquals(40, LevelConfig.getConfig(1, fieldAspect = 5.0).gridHeight)
     }
 
     @Test
     fun `engine runs on an aspect-shaped grid`() {
         val engine = GameEngine(LevelConfig.getConfig(1, fieldAspect = 0.5))
-        assertEquals(40, engine.width)
-        assertEquals(80, engine.height)
+        assertEquals(32, engine.width)
+        assertEquals(64, engine.height)
         // Border cells are pre-captured on the taller grid too
-        assertEquals(GridCellState.CAPTURED, engine.grid[0][79])
-        assertEquals(GridCellState.CAPTURED, engine.grid[39][0])
+        assertEquals(GridCellState.CAPTURED, engine.grid[0][63])
+        assertEquals(GridCellState.CAPTURED, engine.grid[31][0])
     }
 
     // ---------------------------------------------------------------- enemy spawning
