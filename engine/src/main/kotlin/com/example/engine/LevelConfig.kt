@@ -76,12 +76,14 @@ data class LevelConfig(
             val aggression = ((l - 1) * 0.075).coerceIn(0.0, 1.0)
             val target = (68.0 + (l - 1) * 1.6).coerceAtMost(88.0)
 
-            val width = 40
+            // 32 cells across (was 40): ~1.25x bigger cells, so the caterpillar and
+            // spiders render noticeably larger and more readable on phone screens.
+            val width = 32
             val height = (width / fieldAspect.coerceIn(0.35, 1.2))
                 .let { Math.round(it).toInt() }
-                .coerceIn(50, 90)
-            // Base time is tuned for the 40x50 grid; scale with the actual area.
-            val areaFactor = (width * height) / (40.0 * 50.0)
+                .coerceIn(40, 72)
+            // Base time is tuned for the default 32x40 grid; scale with actual area.
+            val areaFactor = (width * height) / (32.0 * 40.0)
             val time = Math.round((200 - (l - 1) * 8).coerceAtLeast(80) * areaFactor).toInt()
 
             return LevelConfig(
