@@ -1,7 +1,15 @@
 package com.example.engine
 
+import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.random.Random
+
+/**
+ * An in-flight web projectile fired by a Spitter. Coordinates use the same cell
+ * space as enemies (the visual centre sits at +0.5). Read-only snapshot for the UI.
+ */
+data class WebShot(val x: Double, val y: Double, val vx: Double, val vy: Double)
 
 /**
  * Game state enum to track the current phase of the match.
@@ -125,6 +133,13 @@ class GameEngine(
     // Enemy state
     val enemies = mutableListOf<Enemy>()
 
+    // Web projectiles fired by Spitters. Internal mutable list + read-only snapshot.
+    private class WebProjectile(var x: Double, var y: Double, val vx: Double, val vy: Double, var life: Double)
+    private val activeWebs = mutableListOf<WebProjectile>()
+    /** Read-only snapshot of in-flight webs for the UI, refreshed every tick. */
+    var webs: List<WebShot> = emptyList()
+        private set
+
     // Stats
     var lives = initialLives
         private set
@@ -159,6 +174,10 @@ class GameEngine(
         const val FREEZE_SECONDS = 3.5
         const val SLOW_SECONDS = 5.0
         const val SLOW_FACTOR = 0.4
+
+        /** Web projectile tuning. */
+        const val WEB_RADIUS = 0.34             // collision radius of a web glob (cells)
+        const val WEB_LIFE = 4.0                // seconds before a web dissipates
     }
 
     init {
@@ -239,6 +258,26 @@ class GameEngine(
 
             enemies.add(Speeder(idCounter++, rx, ry, vx, vy))
         }
+
+        // Spawn Eaters (wall-devouring spiders): slow drift, seeded away from the border.
+        for (i in 0 until levelConfig.eaterCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble(5.0, (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.5   // deliberately sluggish
+            val vx = speed * kotlin.math.cos(angle)
+            val vy = speed * kotlin.math.sin(angle)
+
+            enemies.add(Eater(idCounter++, rx, ry, vx, vy))
+        }
+
+        // Spawn Spitters (stationary web-shooters) in the lower half, so the player has
+        // a moment before they're in range, spread across the width.
+        for (i in 0 until levelConfig.spitterCount) {
+            val rx = random.nextDouble(4.0, (width - 5).toDouble())
+            val ry = random.nextDouble((height * 0.45), (height - 5).toDouble())
+            enemies.add(Spitter(idCounter++, rx, ry, aggression = levelConfig.enemyAggression))
+        }
     }
 
     /**
@@ -305,10 +344,24 @@ class GameEngine(
                 enemy.setTarget(targetX, targetY)
                 enemy.update(grid, enemyDt)
             }
+            // Eaters mutate the grid directly; refresh the version + percentage once.
+            if (enemies.any { it.ateWall }) {
+                enemies.forEach { it.ateWall = false }
+                gridVersion++
+                recalculateCapturedPercentage()
+            }
+            // Spitters may have launched webs this tick; spawn them from the enemy centre.
+            for (enemy in enemies) {
+                val spit = enemy.consumePendingSpit() ?: continue
+                activeWebs.add(WebProjectile(enemy.x, enemy.y, spit[0], spit[1], WEB_LIFE))
+            }
         }
 
-        // 3. Check enemy-player direct collision or trail collision before moving player
-        if (checkEnemyCollisions()) {
+        // 2b. Advance web projectiles (frozen/slowed with the rest of the enemies).
+        updateWebs(enemyDt)
+
+        // 3. Check enemy-player direct collision, trail collision, or a web hit
+        if (checkEnemyCollisions() || checkWebCollisions()) {
             handleCrash()
             return
         }
@@ -320,7 +373,7 @@ class GameEngine(
             performPlayerGridStep()
 
             // Re-check collisions after the player moves
-            if (status == GameStateStatus.RUNNING && checkEnemyCollisions()) {
+            if (status == GameStateStatus.RUNNING && (checkEnemyCollisions() || checkWebCollisions())) {
                 handleCrash()
                 break
             }
@@ -375,6 +428,56 @@ class GameEngine(
                     }
                 }
             }
+        }
+        return false
+    }
+
+    /**
+     * Moves every web projectile, sub-stepped so fast webs can't tunnel through thin
+     * walls. A web dies when it leaves the field, strikes CAPTURED land (absorbed by
+     * the wall - so claimed territory is cover), or its lifetime expires. Refreshes the
+     * public [webs] snapshot.
+     */
+    private fun updateWebs(dt: Double) {
+        if (activeWebs.isNotEmpty() && dt > 0.0) {
+            val iter = activeWebs.iterator()
+            while (iter.hasNext()) {
+                val w = iter.next()
+                val distance = hypot(w.vx, w.vy) * dt
+                val steps = ceil(distance / 0.5).toInt().coerceAtLeast(1)
+                val sdt = dt / steps
+                var dead = false
+                var s = 0
+                while (s < steps && !dead) {
+                    w.x += w.vx * sdt
+                    w.y += w.vy * sdt
+                    val gx = floor(w.x + 0.5).toInt()
+                    val gy = floor(w.y + 0.5).toInt()
+                    if (gx !in 0 until width || gy !in 0 until height ||
+                        grid[gx][gy] == GridCellState.CAPTURED
+                    ) {
+                        dead = true
+                    }
+                    s++
+                }
+                w.life -= dt
+                if (dead || w.life <= 0.0) iter.remove()
+            }
+        }
+        webs = if (activeWebs.isEmpty()) emptyList()
+        else activeWebs.map { WebShot(it.x, it.y, it.vx, it.vy) }
+    }
+
+    /** True if any web projectile currently overlaps the player. */
+    private fun checkWebCollisions(): Boolean {
+        if (activeWebs.isEmpty()) return false
+        val pcx = playerX + 0.5
+        val pcy = playerY + 0.5
+        val hitDistance = WEB_RADIUS + PLAYER_HALF_SIZE
+        for (w in activeWebs) {
+            val dx = (w.x + 0.5) - pcx
+            val dy = (w.y + 0.5) - pcy
+            if (dx * dx + dy * dy < hitDistance * hitDistance) return true
         }
         return false
     }
@@ -550,6 +653,10 @@ class GameEngine(
             gridVersion++
         }
         trail.clear()
+
+        // Clear in-flight webs so the player isn't instantly re-hit on reset.
+        activeWebs.clear()
+        webs = emptyList()
 
         if (lives <= 0) {
             status = GameStateStatus.GAME_OVER

@@ -465,8 +465,8 @@ class GameEngineTest {
     fun `enemy count is capped even at very high levels`() {
         val cfg = LevelConfig.getConfig(999)
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
-            cfg.hunterCount + cfg.speederCount
-        assertTrue(total <= 8)
+            cfg.hunterCount + cfg.speederCount + cfg.eaterCount + cfg.spitterCount
+        assertTrue(total <= 7)
         assertTrue(cfg.enemySpeed <= 11.0)
     }
 
@@ -744,11 +744,95 @@ class GameEngineTest {
     fun `late levels stay a small squad, not a crowd`() {
         val cfg = LevelConfig.getConfig(20)
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
-            cfg.hunterCount + cfg.speederCount
-        assertTrue("level 20 should have all five spider types present",
+            cfg.hunterCount + cfg.speederCount + cfg.eaterCount + cfg.spitterCount
+        assertTrue("level 20 should feature every ability type",
             cfg.bouncerCount > 0 && cfg.crawlerCount > 0 && cfg.jumperCount > 0 &&
-                cfg.hunterCount > 0 && cfg.speederCount > 0)
-        assertTrue("late-game squad should stay small (<=8), was $total", total <= 8)
+                cfg.hunterCount > 0 && cfg.speederCount > 0 &&
+                cfg.eaterCount > 0 && cfg.spitterCount > 0)
+        assertTrue("late-game squad should stay small (<=7), was $total", total <= 7)
+    }
+
+    @Test
+    fun `eaters appear from level 4 and spitters from level 15`() {
+        assertEquals(0, LevelConfig.getConfig(3).eaterCount)
+        assertTrue(LevelConfig.getConfig(4).eaterCount >= 1)
+        assertEquals(0, LevelConfig.getConfig(14).spitterCount)
+        assertTrue(LevelConfig.getConfig(15).spitterCount >= 1)
+    }
+
+    // ---------------------------------------------------------------- eater (wall-devourer)
+
+    private fun borderedGrid(w: Int, h: Int): Array<Array<GridCellState>> =
+        Array(w) { x ->
+            Array(h) { y ->
+                if (x == 0 || x == w - 1 || y == 0 || y == h - 1) GridCellState.CAPTURED
+                else GridCellState.EMPTY
+            }
+        }
+
+    @Test
+    fun `eater devours an interior captured cell it runs into`() {
+        val grid = borderedGrid(12, 12)
+        grid[6][5] = GridCellState.CAPTURED          // a lone claimed cell
+        val eater = Eater(1, 4.0, 5.0, 5.0, 0.0)     // to its left, drifting right
+        // Advance until it reaches and bites the cell.
+        repeat(20) { eater.update(grid, 0.05) }
+        assertEquals(GridCellState.EMPTY, grid[6][5])
+        assertTrue("eater should flag that it ate a wall", eater.ateWall)
+    }
+
+    @Test
+    fun `eater can never devour the outer border`() {
+        val grid = borderedGrid(12, 12)
+        val eater = Eater(1, 1.5, 5.0, -5.0, 0.0)    // drifting left into the border
+        repeat(40) { eater.update(grid, 0.05) }
+        assertEquals(GridCellState.CAPTURED, grid[0][5])  // border intact
+    }
+
+    // ---------------------------------------------------------------- spitter (web-shooter)
+
+    @Test
+    fun `spitter charges then fires a web aimed at the player`() {
+        val grid = borderedGrid(20, 20)
+        val spitter = Spitter(1, 10.0, 12.0, aggression = 1.0)
+        spitter.setTarget(10.5, 0.5)                 // player far above the spitter
+        var fired: DoubleArray? = null
+        var t = 0.0
+        while (t < 8.0 && fired == null) {
+            spitter.update(grid, 0.1)
+            fired = spitter.consumePendingSpit()
+            t += 0.1
+        }
+        assertTrue("spitter should fire within a few seconds", fired != null)
+        assertTrue("web should travel upward toward the player", fired!![1] < 0.0)
+    }
+
+    @Test
+    fun `spitter never moves from its post`() {
+        val grid = borderedGrid(20, 20)
+        val spitter = Spitter(1, 10.0, 12.0, aggression = 0.5)
+        spitter.setTarget(2.0, 2.0)
+        repeat(60) { spitter.update(grid, 0.1) }
+        assertEquals(10.0, spitter.x, 1e-9)
+        assertEquals(12.0, spitter.y, 1e-9)
+    }
+
+    @Test
+    fun `engine emits web projectiles when a spitter is present`() {
+        val config = LevelConfig(
+            levelNumber = 15, gridWidth = 20, gridHeight = 20,
+            bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
+            hunterCount = 0, speederCount = 0, eaterCount = 0, spitterCount = 1,
+            enemySpeed = 4.0, enemyAggression = 1.0,
+            targetPercentage = 99.0, timeLimitSeconds = 999
+        )
+        val engine = GameEngine(config)
+        var sawWeb = false
+        repeat(80) {
+            engine.tick(0.1)
+            if (engine.webs.isNotEmpty()) sawWeb = true
+        }
+        assertTrue("a spitter should have launched at least one web", sawWeb)
     }
 
     // ---------------------------------------------------------------- enemy spawning

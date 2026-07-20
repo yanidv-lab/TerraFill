@@ -70,6 +70,20 @@ sealed class Enemy {
     open fun setTarget(x: Double, y: Double) {}
 
     /**
+     * Set true by wall-eating enemies during [update] when they consume a CAPTURED cell.
+     * The engine reads this after updating enemies (to refresh the grid version and the
+     * captured percentage) and then clears it.
+     */
+    var ateWall: Boolean = false
+
+    /**
+     * If this enemy launched a web this tick, returns its velocity as [vx, vy] (cells/sec)
+     * and clears the pending shot; otherwise null. The engine spawns a web projectile from
+     * the enemy's position with this velocity. Non-spitting enemies always return null.
+     */
+    open fun consumePendingSpit(): DoubleArray? = null
+
+    /**
      * Helper to clone the enemy instance.
      */
     abstract fun copyWith(x: Double = this.x, y: Double = this.y, vx: Double = this.vx, vy: Double = this.vy): Enemy
@@ -343,6 +357,164 @@ class Hunter(
 
     private companion object {
         const val TURN_RATE = 2.2   // base re-aim rate (higher = harder to juke)
+    }
+}
+
+/**
+ * Eater enemy - a slow spider that DEVOURS captured territory. It drifts like a
+ * sluggish bouncer, but instead of bouncing off the player's claimed land it bites
+ * a hole in it: on contact with an interior CAPTURED cell it converts that cell back
+ * to EMPTY (throttled by a short chewing cooldown) and crawls into the gap. It can
+ * never eat the outer border, so the field is always escapable. This steadily nibbles
+ * the player's progress, forcing them to defend as well as expand.
+ */
+class Eater(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.42
+) : Enemy() {
+    override val type: String = "Eater"
+
+    /** Seconds until it can bite the next wall cell (keeps the munching visibly slow). */
+    private var eatCooldown = 0.0
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        val width = grid.size
+        val height = if (width > 0) grid[0].size else 0
+        if (width == 0 || height == 0) return
+
+        if (eatCooldown > 0.0) eatCooldown -= dt
+
+        val distance = hypot(vx, vy) * dt
+        val steps = ceil(distance / 0.5).toInt().coerceAtLeast(1)
+        val sdt = dt / steps
+
+        repeat(steps) {
+            // X axis
+            val nextX = x + vx * sdt
+            val gridX = floor(nextX).toInt().coerceIn(0, width - 1)
+            val currentGridY = floor(y).toInt().coerceIn(0, height - 1)
+            if (nextX < 0 || nextX >= width) {
+                vx = -vx
+            } else if (grid[gridX][currentGridY] == GridCellState.CAPTURED) {
+                if (isInterior(gridX, currentGridY, width, height) && eatCooldown <= 0.0) {
+                    grid[gridX][currentGridY] = GridCellState.EMPTY
+                    ateWall = true
+                    eatCooldown = EAT_INTERVAL
+                    x = nextX
+                } else {
+                    vx = -vx
+                }
+            } else {
+                x = nextX
+            }
+
+            // Y axis
+            val nextY = y + vy * sdt
+            val currentGridX = floor(x).toInt().coerceIn(0, width - 1)
+            val gridY = floor(nextY).toInt().coerceIn(0, height - 1)
+            if (nextY < 0 || nextY >= height) {
+                vy = -vy
+            } else if (grid[currentGridX][gridY] == GridCellState.CAPTURED) {
+                if (isInterior(currentGridX, gridY, width, height) && eatCooldown <= 0.0) {
+                    grid[currentGridX][gridY] = GridCellState.EMPTY
+                    ateWall = true
+                    eatCooldown = EAT_INTERVAL
+                    y = nextY
+                } else {
+                    vy = -vy
+                }
+            } else {
+                y = nextY
+            }
+        }
+    }
+
+    private fun isInterior(cx: Int, cy: Int, width: Int, height: Int): Boolean =
+        cx in 1..(width - 2) && cy in 1..(height - 2)
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
+        return Eater(id, x, y, vx, vy, radius)
+    }
+
+    private companion object {
+        const val EAT_INTERVAL = 0.45   // seconds between bites (visibly slow chewing)
+    }
+}
+
+/**
+ * Spitter enemy - a stationary ambush spider introduced at high levels. It holds
+ * position and periodically charges up, then spits a web projectile toward the
+ * player's location at the moment of the shot. A web that reaches the player is a
+ * crash, so the player must keep moving and use captured walls as cover (webs are
+ * absorbed by claimed land). Deterministic per [id] so behaviour is testable.
+ */
+class Spitter(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double = 0.0,
+    override var vy: Double = 0.0,
+    override val radius: Double = 0.45,
+    /** 0..1 difficulty: higher = shorter charge/cooldown (spits more often). */
+    val aggression: Double = 0.0
+) : Enemy() {
+    override val type: String = "Spitter"
+
+    private val rng = Random(id.toLong() * 40503L + 17)
+    private var targetX = x
+    private var targetY = y
+    private var spitCooldown = FIRST_DELAY + rng.nextDouble() * 1.5
+    private var pendingVx = 0.0
+    private var pendingVy = 0.0
+    private var hasPending = false
+
+    /** 0..1 telegraph of the next spit, exposed so the UI can pulse a warning glow. */
+    var spitCharge = 0.0
+        private set
+
+    override fun setTarget(x: Double, y: Double) {
+        targetX = x
+        targetY = y
+    }
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        // Stationary: the spitter never moves, it only aims and fires.
+        val interval = SPIT_INTERVAL * (1.0 - 0.45 * aggression.coerceIn(0.0, 1.0))
+        spitCooldown -= dt
+        spitCharge = (1.0 - (spitCooldown / CHARGE_TIME)).coerceIn(0.0, 1.0)
+        if (spitCooldown <= 0.0) {
+            val dx = targetX - (x + 0.5)
+            val dy = targetY - (y + 0.5)
+            val dist = hypot(dx, dy)
+            if (dist > 1e-6) {
+                pendingVx = dx / dist * WEB_SPEED
+                pendingVy = dy / dist * WEB_SPEED
+                hasPending = true
+            }
+            spitCooldown = interval.coerceAtLeast(1.4)
+            spitCharge = 0.0
+        }
+    }
+
+    override fun consumePendingSpit(): DoubleArray? {
+        if (!hasPending) return null
+        hasPending = false
+        return doubleArrayOf(pendingVx, pendingVy)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
+        return Spitter(id, x, y, vx, vy, radius, aggression).also { it.spitCharge = spitCharge }
+    }
+
+    private companion object {
+        const val FIRST_DELAY = 2.2     // seconds before the first spit
+        const val SPIT_INTERVAL = 3.4   // base seconds between spits
+        const val CHARGE_TIME = 0.9     // telegraph window before firing
+        const val WEB_SPEED = 6.5       // cells per second
     }
 }
 

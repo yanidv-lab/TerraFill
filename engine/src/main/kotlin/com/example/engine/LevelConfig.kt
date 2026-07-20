@@ -9,8 +9,10 @@ package com.example.engine
  * Enemy roster by level band:
  *  - from level 1: bouncers (drift + bounce) and crawlers (wall-followers)
  *  - from level 3: jumpers (spiders that leap in fast bursts)
+ *  - from level 4: eaters (slow spiders that devour captured territory)
  *  - from level 5: hunters (spiders that actively chase the player)
  *  - from level 7: speeders (very fast straight-line spiders)
+ *  - from level 15: spitters (stationary spiders that fire web projectiles)
  *
  * Design intent: difficulty comes from smarter, faster, more aggressive enemies -
  * NOT from swarming the screen. Counts grow slowly and are capped low, so later
@@ -27,6 +29,8 @@ data class LevelConfig(
     val jumperCount: Int,
     val hunterCount: Int,
     val speederCount: Int,
+    val eaterCount: Int = 0,
+    val spitterCount: Int = 0,
     val enemySpeed: Double,       // cells per second for drifting enemies
     val enemyAggression: Double,  // 0..1 - strength of jumper/hunter special abilities
     val targetPercentage: Double = 75.0,
@@ -37,8 +41,9 @@ data class LevelConfig(
         const val TOTAL_LEVELS = 20
 
         /** Upper bound on total enemies. Kept low on purpose: a tight squad of
-         *  distinct abilities reads far better than a crowded screen of objects. */
-        private const val MAX_ENEMIES = 8
+         *  distinct abilities reads far better than a crowded screen of objects.
+         *  With seven ability types this yields ~one of each at the top levels. */
+        private const val MAX_ENEMIES = 7
 
         /**
          * Builds the configuration for any level number, scaling difficulty smoothly:
@@ -54,23 +59,29 @@ data class LevelConfig(
             val l = level.coerceAtLeast(1)
 
             // Slow-growing counts: at most one new spider every several levels, so
-            // the roster stays a readable squad even at level 20 (trimmed to 8).
-            var bouncers = 1 + (l - 1) / 7                       // 1..~3
-            var crawlers = 1 + (l - 1) / 7                       // from L1
-            var jumpers = if (l < 3) 0 else 1 + (l - 3) / 8      // from L3
-            var hunters = if (l < 5) 0 else 1 + (l - 5) / 9      // from L5
-            var speeders = if (l < 7) 0 else 1 + (l - 7) / 9     // from L7
+            // the roster stays a readable squad even at level 20 (trimmed to 7).
+            var bouncers = 1 + (l - 1) / 9                       // 1..~3
+            var crawlers = 1 + (l - 1) / 9                       // from L1
+            var jumpers = if (l < 3) 0 else 1 + (l - 3) / 10     // from L3
+            var eaters = if (l < 4) 0 else 1 + (l - 4) / 12      // from L4
+            var hunters = if (l < 5) 0 else 1 + (l - 5) / 11     // from L5
+            var speeders = if (l < 7) 0 else 1 + (l - 7) / 12    // from L7
+            var spitters = if (l < 15) 0 else 1 + (l - 15) / 8   // from L15
 
             // Keep the total manageable: while over budget, trim the largest group.
-            fun total() = bouncers + crawlers + jumpers + hunters + speeders
+            // Because every ability starts at 1, this preserves variety - it thins
+            // duplicates before it ever removes a type entirely.
+            fun total() = bouncers + crawlers + jumpers + hunters + speeders + eaters + spitters
             while (total() > MAX_ENEMIES) {
-                val biggest = maxOf(bouncers, crawlers, jumpers, hunters, speeders)
+                val biggest = maxOf(bouncers, crawlers, jumpers, hunters, speeders, eaters, spitters)
                 when (biggest) {
                     bouncers -> bouncers--
                     crawlers -> crawlers--
                     jumpers -> jumpers--
                     hunters -> hunters--
-                    else -> speeders--
+                    speeders -> speeders--
+                    eaters -> eaters--
+                    else -> spitters--
                 }
             }
 
@@ -100,6 +111,8 @@ data class LevelConfig(
                 jumperCount = jumpers,
                 hunterCount = hunters,
                 speederCount = speeders,
+                eaterCount = eaters,
+                spitterCount = spitters,
                 enemySpeed = speed,
                 enemyAggression = aggression,
                 targetPercentage = target,
