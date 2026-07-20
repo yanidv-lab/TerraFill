@@ -23,9 +23,9 @@ import kotlinx.coroutines.launch
 data class GameUiState(
     val levelNumber: Int = 1,
     val grid: Array<Array<GridCellState>> = Array(0) { emptyArray() },
-    val gridWidth: Int = 32,
-    val gridHeight: Int = 40,
-    val playerX: Int = 16,
+    val gridWidth: Int = 28,
+    val gridHeight: Int = 36,
+    val playerX: Int = 14,
     val playerY: Int = 0,
     val playerDirection: Direction = Direction.NONE,
     val isDrawing: Boolean = false,
