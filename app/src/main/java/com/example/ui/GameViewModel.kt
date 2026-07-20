@@ -56,7 +56,9 @@ data class GameUiState(
     val freezeRemaining: Double = 0.0,
     val slowRemaining: Double = 0.0,
     val powerUpCollectedCount: Int = 0,
-    val stars: Int = 0
+    val stars: Int = 0,
+    /** In-flight web projectiles fired by Spitter enemies. */
+    val webShots: List<WebShot> = emptyList()
 )
 
 /**
@@ -342,7 +344,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             freezeRemaining = activeEngine.freezeRemaining,
             slowRemaining = activeEngine.slowRemaining,
             powerUpCollectedCount = activeEngine.powerUpCollectedCount,
-            stars = activeEngine.stars
+            stars = activeEngine.stars,
+            webShots = activeEngine.webs
         )
     }
 }

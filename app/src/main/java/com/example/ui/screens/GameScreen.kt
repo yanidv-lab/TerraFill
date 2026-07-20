@@ -1083,6 +1083,8 @@ fun Playfield(
                         "Crawler" -> NeonCyan
                         "Hunter" -> Color(0xFFFF2A2A)
                         "Speeder" -> Color(0xFFFFD500)
+                        "Eater" -> Color(0xFFB14CFF)     // violet muncher
+                        "Spitter" -> Color(0xFFAEEA00)   // venom yellow-green
                         else -> NeonGreen   // Jumper
                     }
 
@@ -1105,6 +1107,19 @@ fun Playfield(
                             style = Stroke(width = cellMin * 0.12f)
                         )
                     }
+                    // Spitter telegraph: a warning ring tightens as it charges a web shot.
+                    if (enemy.type == "Spitter") {
+                        val charge = ((enemy as? Spitter)?.spitCharge ?: 0.0).toFloat()
+                        if (charge > 0.05f) {
+                            drawCircle(
+                                color = Color(0xFFAEEA00),
+                                radius = cellMin * (2.0f - charge * 1.1f),
+                                center = center,
+                                alpha = 0.25f + 0.5f * charge,
+                                style = Stroke(width = cellMin * (0.05f + 0.12f * charge))
+                            )
+                        }
+                    }
                     // Speeders leave motion streaks trailing opposite their velocity
                     if (enemy.type == "Speeder") {
                         val vmag = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
@@ -1123,12 +1138,14 @@ fun Playfield(
                         }
                     }
                     // Sprite per type: red = bouncer, blue = crawler, green = jumper,
-                    // crimson-tinted silhouette = hunter, gold-tinted = speeder
+                    // crimson hunter, gold speeder, violet eater, venom-green spitter
                     val sprite = when (enemy.type) {
                         "Bouncer" -> spiderRedSprite
                         "Crawler" -> spiderBlueSprite
                         "Hunter" -> spiderBlueSprite
                         "Speeder" -> spiderRedSprite
+                        "Eater" -> spiderRedSprite
+                        "Spitter" -> spiderBlueSprite
                         else -> spiderGreenSprite   // Jumper
                     }
                     val tint = when (enemy.type) {
@@ -1138,6 +1155,12 @@ fun Playfield(
                         "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(
                             Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop
                         )
+                        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
                         else -> null
                     }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
@@ -1146,15 +1169,17 @@ fun Playfield(
                     // New spider art faces LEFT natively; mirror when moving right
                     val flip = enemy.vx > 0
 
-                    // Walk-cycle gait: cadence and amplitude scale with how fast the
-                    // spider is actually moving, so it visibly scuttles instead of
-                    // sliding. Each enemy's id de-syncs its phase from the others.
+                    // Crawl gait: a calm, low-frequency leg cadence (not a buzz). The
+                    // body sways gently and bobs as if pushing off alternating legs;
+                    // amplitudes stay small so it reads as a real spider crawling
+                    // rather than vibrating. Each enemy's id de-syncs its phase.
                     val speedNorm = (speed / 10f).coerceIn(0f, 1f)
-                    val gaitHz = 2.0 + 5.0 * speedNorm
+                    val gaitHz = 1.1 + 2.1 * speedNorm                       // ~1-3 Hz, was 2-7
                     val phase = (now / 1000.0 * gaitHz * 2.0 * Math.PI + enemy.id * 1.7)
-                    val wobbleDeg = (sin(phase) * (2.0 + 5.0 * speedNorm)).toFloat()
-                    val stretch = 1f + (0.025f + 0.045f * speedNorm) * sin(phase * 2.0).toFloat()
-                    val bob = (sin(phase) * cellMin * (0.03 + 0.06 * speedNorm)).toFloat()
+                    val wobbleDeg = (sin(phase) * (0.8 + 1.6 * speedNorm)).toFloat()   // small sway
+                    val stretch = 1f + (0.012f + 0.028f * speedNorm) * sin(phase).toFloat()
+                    // Vertical bob at twice the stride rate reads as leg steps, kept subtle.
+                    val bob = (sin(phase * 2.0) * cellMin * (0.02 + 0.045 * speedNorm)).toFloat()
 
                     // Jumpers physically leave the ground mid-leap: body rises, shadow shrinks
                     val lift = (leapScale - 1f) / 0.6f
@@ -1185,6 +1210,41 @@ fun Playfield(
                             color = glow
                         )
                     }
+                }
+
+                // ---------- 5b. Web projectiles fired by spitters ----------
+                for (web in state.webShots) {
+                    val wc = Offset(((web.x + 0.5) * cellW).toFloat(), ((web.y + 0.5) * cellH).toFloat())
+                    val vmag = kotlin.math.hypot(web.vx, web.vy).toFloat()
+                    val webCol = Color(0xFFD7F26B)
+                    // Motion streak trailing opposite the travel direction
+                    if (vmag > 1e-4f) {
+                        val ux = (-web.vx / vmag).toFloat()
+                        val uy = (-web.vy / vmag).toFloat()
+                        drawLine(
+                            color = webCol.copy(alpha = 0.35f),
+                            start = wc,
+                            end = Offset(wc.x + ux * cellMin * 1.0f, wc.y + uy * cellMin * 1.0f),
+                            strokeWidth = cellMin * 0.14f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    // Sticky glob with a couple of radiating strands
+                    for (k in 0 until 4) {
+                        val a = k * (Math.PI / 2) + 0.4
+                        drawLine(
+                            color = webCol.copy(alpha = 0.55f),
+                            start = wc,
+                            end = Offset(
+                                wc.x + cos(a).toFloat() * cellMin * 0.34f,
+                                wc.y + sin(a).toFloat() * cellMin * 0.34f
+                            ),
+                            strokeWidth = cellMin * 0.05f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    drawCircle(Color.White.copy(alpha = 0.9f), cellMin * 0.24f, wc)
+                    drawCircle(webCol, cellMin * 0.24f, wc, style = Stroke(width = cellMin * 0.07f))
                 }
 
                 // ---------- 6. The player: the caterpillar sprite, facing its direction ----------
