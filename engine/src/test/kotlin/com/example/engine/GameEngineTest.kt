@@ -466,8 +466,8 @@ class GameEngineTest {
         val cfg = LevelConfig.getConfig(999)
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
             cfg.hunterCount + cfg.speederCount
-        assertTrue(total <= 14)
-        assertTrue(cfg.enemySpeed <= 10.5)
+        assertTrue(total <= 8)
+        assertTrue(cfg.enemySpeed <= 11.0)
     }
 
     @Test
@@ -705,37 +705,50 @@ class GameEngineTest {
     // ---------------------------------------------------------------- adaptive field shape
 
     @Test
-    fun `default field aspect yields the standard 32x40 grid`() {
+    fun `default field aspect yields a 28-wide grid`() {
         val config = LevelConfig.getConfig(1)
-        assertEquals(32, config.gridWidth)
-        assertEquals(40, config.gridHeight)
+        assertEquals(28, config.gridWidth)
+        assertTrue(config.gridHeight in 36..64)
     }
 
     @Test
     fun `taller screens get taller grids with time scaled to the extra area`() {
-        val base = LevelConfig.getConfig(1)                    // 32x40
-        val tall = LevelConfig.getConfig(1, fieldAspect = 0.5) // 32x64
-        assertEquals(32, tall.gridWidth)
-        assertEquals(64, tall.gridHeight)
-        // 60% more cells to capture => proportionally more time
-        val expected = Math.round(base.timeLimitSeconds * (32.0 * 64.0) / (32.0 * 40.0)).toInt()
+        val base = LevelConfig.getConfig(1)                    // 28 x 36 (default aspect)
+        val tall = LevelConfig.getConfig(1, fieldAspect = 0.5) // 28 x 56
+        assertEquals(28, tall.gridWidth)
+        assertEquals(56, tall.gridHeight)
+        // Proportionally more cells to traverse => proportionally more time
+        val expected = Math.round(
+            base.timeLimitSeconds.toDouble() * (28.0 * 56.0) / (28.0 * base.gridHeight)
+        ).toInt()
         assertEquals(expected, tall.timeLimitSeconds)
     }
 
     @Test
     fun `extreme aspect ratios are clamped to a sane grid`() {
-        assertEquals(72, LevelConfig.getConfig(1, fieldAspect = 0.1).gridHeight)
-        assertEquals(40, LevelConfig.getConfig(1, fieldAspect = 5.0).gridHeight)
+        assertEquals(64, LevelConfig.getConfig(1, fieldAspect = 0.1).gridHeight)
+        assertEquals(36, LevelConfig.getConfig(1, fieldAspect = 5.0).gridHeight)
     }
 
     @Test
     fun `engine runs on an aspect-shaped grid`() {
         val engine = GameEngine(LevelConfig.getConfig(1, fieldAspect = 0.5))
-        assertEquals(32, engine.width)
-        assertEquals(64, engine.height)
+        assertEquals(28, engine.width)
+        assertEquals(56, engine.height)
         // Border cells are pre-captured on the taller grid too
-        assertEquals(GridCellState.CAPTURED, engine.grid[0][63])
-        assertEquals(GridCellState.CAPTURED, engine.grid[31][0])
+        assertEquals(GridCellState.CAPTURED, engine.grid[0][55])
+        assertEquals(GridCellState.CAPTURED, engine.grid[27][0])
+    }
+
+    @Test
+    fun `late levels stay a small squad, not a crowd`() {
+        val cfg = LevelConfig.getConfig(20)
+        val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
+            cfg.hunterCount + cfg.speederCount
+        assertTrue("level 20 should have all five spider types present",
+            cfg.bouncerCount > 0 && cfg.crawlerCount > 0 && cfg.jumperCount > 0 &&
+                cfg.hunterCount > 0 && cfg.speederCount > 0)
+        assertTrue("late-game squad should stay small (<=8), was $total", total <= 8)
     }
 
     // ---------------------------------------------------------------- enemy spawning

@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp as lerpOffset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.FilterQuality
@@ -97,10 +98,10 @@ private fun DrawScope.drawFallbackCaterpillar(center: Offset, longSide: Float) {
 }
 
 /** How many grid cells long the player caterpillar sprite is drawn (visual only; hitbox stays small). */
-private const val PLAYER_SPRITE_CELLS = 2.9f
+private const val PLAYER_SPRITE_CELLS = 3.3f
 
 /** How many grid cells wide the enemy spider sprite is drawn. */
-private const val ENEMY_SPRITE_CELLS = 2.7f
+private const val ENEMY_SPRITE_CELLS = 3.1f
 
 /**
  * Draws an [image] centered at [center], scaled so its longer side spans [targetLongSide]
@@ -770,25 +771,45 @@ fun Playfield(
         }
     }
 
-    // Capture flash + green particle burst on each completed capture
+    // Capture flash: a golden shockwave sweeps out from the claimed region's centre,
+    // lighting each cell as the wavefront reaches it, followed by a sparkle burst.
     var captureFlashStart by remember { mutableStateOf(-1L) }
     var captureFlashCells by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    var captureCentroidX by remember { mutableStateOf(0f) }
+    var captureCentroidY by remember { mutableStateOf(0f) }
+    var captureRadius by remember { mutableStateOf(1f) }
     LaunchedEffect(state.captureCount) {
         if (state.captureCount > 0) {
-            captureFlashCells = state.lastCapturedCells
-            captureFlashStart = frameTimeMillis
             val cells = state.lastCapturedCells
-            val sample = if (cells.size > 24) cells.shuffled().take(24) else cells
+            captureFlashCells = cells
+            captureFlashStart = frameTimeMillis
+            if (cells.isNotEmpty()) {
+                // Centroid + furthest-cell radius define the shockwave geometry.
+                var sx = 0f; var sy = 0f
+                for (c in cells) { sx += c.first + 0.5f; sy += c.second + 0.5f }
+                val cx = sx / cells.size; val cy = sy / cells.size
+                captureCentroidX = cx; captureCentroidY = cy
+                var maxD = 1f
+                for (c in cells) {
+                    val d = kotlin.math.hypot((c.first + 0.5f) - cx, (c.second + 0.5f) - cy)
+                    if (d > maxD) maxD = d
+                }
+                captureRadius = maxD
+            }
+            // Sparkle burst: gold + green motes lifting off the reclaimed land.
+            val sample = if (cells.size > 28) cells.shuffled().take(28) else cells
             for (c in sample) {
                 repeat(2) {
                     val ang = Math.random() * 2 * Math.PI
-                    val spd = 2f + Math.random().toFloat() * 4f
+                    val spd = 2f + Math.random().toFloat() * 4.5f
+                    val gold = Math.random() < 0.5
                     particles.add(
                         GameParticle(
                             x = c.first + 0.5f, y = c.second + 0.5f,
-                            vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd).toFloat(),
-                            life = 0.5f + Math.random().toFloat() * 0.4f, maxLife = 0.9f,
-                            color = NeonGreen, size = 0.12f + Math.random().toFloat() * 0.14f, gravity = 5f
+                            vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd - 1.5f).toFloat(),
+                            life = 0.5f + Math.random().toFloat() * 0.5f, maxLife = 1.0f,
+                            color = if (gold) Color(0xFFFFE082) else NeonGreen,
+                            size = 0.10f + Math.random().toFloat() * 0.16f, gravity = 4.5f
                         )
                     )
                 }
@@ -981,16 +1002,42 @@ fun Playfield(
             }
 
             translate(left = shakeX, top = shakeY) {
-                // ---------- 3. Capture flash: newly claimed land lights up and fades ----------
+                // ---------- 3. Capture flash: a golden shockwave sweeps the claimed land ----------
+                val flashDurMs = 850f
                 val flashAge = now - captureFlashStart
-                if (captureFlashStart >= 0 && flashAge < 700) {
-                    val fade = 1f - flashAge / 700f
+                if (captureFlashStart >= 0 && flashAge < flashDurMs) {
+                    val prog = flashAge / flashDurMs                 // 0..1 over the flash
+                    // Wavefront radius (in cells) expands a bit past the region edge.
+                    val waveR = prog * (captureRadius + 3f)
+                    val centroidPx = Offset(captureCentroidX * cellW, captureCentroidY * cellH)
                     for (cell in captureFlashCells) {
+                        val d = kotlin.math.hypot(
+                            (cell.first + 0.5f) - captureCentroidX,
+                            (cell.second + 0.5f) - captureCentroidY
+                        )
+                        // How long ago (in cells) the wavefront passed this cell.
+                        val since = waveR - d
+                        if (since < 0f) continue                     // wave hasn't arrived yet
+                        val bright = (1f - since / 3.5f).coerceIn(0f, 1f)  // bright at front, fades behind
+                        if (bright <= 0f) continue
+                        // Gold at the wavefront, cooling to leaf-green behind it.
+                        val col = lerpColor(JungleCaptured, Color(0xFFFFF2C0), bright)
                         drawRect(
-                            color = Color.White,
+                            color = col,
                             topLeft = Offset(cell.first * cellW, cell.second * cellH),
                             size = Size(cellW + 0.5f, cellH + 0.5f),
-                            alpha = 0.5f * fade
+                            alpha = 0.85f * bright * (1f - prog * 0.3f)
+                        )
+                    }
+                    // Expanding golden ring outline riding the wavefront.
+                    val ringR = waveR * cellMin
+                    if (ringR > cellMin) {
+                        drawCircle(
+                            color = Color(0xFFFFE082),
+                            radius = ringR,
+                            center = centroidPx,
+                            alpha = (1f - prog) * 0.55f,
+                            style = Stroke(width = cellMin * 0.35f)
                         )
                     }
                 }
