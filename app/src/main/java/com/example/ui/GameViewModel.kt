@@ -60,6 +60,8 @@ data class GameUiState(
     val slowRemaining: Double = 0.0,
     val powerUpCollectedCount: Int = 0,
     val stars: Int = 0,
+    /** Star currency paid out by this completion (0 until the level is finished). */
+    val starsEarned: Int = 0,
     /** In-flight web projectiles fired by Spitter enemies. */
     val webShots: List<WebShot> = emptyList(),
     /** Id of the caterpillar skin the player has equipped. */
@@ -114,9 +116,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val selectedSkin: StateFlow<String> = preferences.selectedSkin
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CaterpillarSkin.DEFAULT.id)
 
+    /** Every star banked from level completions, including replays. */
+    val totalStarsEarned: StateFlow<Int> = preferences.totalStarsEarned
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     /** Stars still available to spend: everything earned, minus what skins cost. */
-    val availableStars: StateFlow<Int> = combine(_levelStars, ownedSkins) { stars, owned ->
-        val earned = stars.values.sum()
+    val availableStars: StateFlow<Int> = combine(totalStarsEarned, ownedSkins) { earned, owned ->
         val spent = CaterpillarSkin.ALL.filter { it.id in owned }.sumOf { it.cost }
         (earned - spent).coerceAtLeast(0)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
@@ -358,6 +363,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     score = activeEngine.score,
                     stars = activeEngine.stars
                 )
+                // Star currency accrues on EVERY completion, so replaying a level is a
+                // legitimate way to grind toward an expensive skin.
+                preferences.addStars(activeEngine.starsEarned)
             }
         }
 
@@ -476,6 +484,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             slowRemaining = activeEngine.slowRemaining,
             powerUpCollectedCount = activeEngine.powerUpCollectedCount,
             stars = activeEngine.stars,
+            starsEarned = activeEngine.starsEarned,
             webShots = activeEngine.webs
         )
     }

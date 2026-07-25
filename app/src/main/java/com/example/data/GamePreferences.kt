@@ -53,6 +53,10 @@ class GamePreferences(context: Context) {
         private fun scoreKey(level: Int) = intPreferencesKey("best_score_level_$level")
         private fun starsKey(level: Int) = intPreferencesKey("best_stars_level_$level")
 
+        // Star currency: cumulative across every level completion (levels can be
+        // replayed for more), minus whatever skins have cost.
+        private val TOTAL_STARS_EARNED = intPreferencesKey("total_stars_earned")
+
         // Caterpillar skins bought with stars
         private val OWNED_SKINS = stringSetPreferencesKey("owned_skins")
         private val SELECTED_SKIN = stringPreferencesKey("selected_skin")
@@ -65,6 +69,19 @@ class GamePreferences(context: Context) {
         private val SAVE_WIDTH = intPreferencesKey("save_width")
         private val SAVE_HEIGHT = intPreferencesKey("save_height")
         private val SAVE_MASK = stringPreferencesKey("save_mask")
+    }
+
+    /** Every star ever earned from completing levels (replays keep adding). */
+    val totalStarsEarned: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        preferences[TOTAL_STARS_EARNED] ?: 0
+    }
+
+    /** Banks the stars paid out by a completed level. */
+    suspend fun addStars(amount: Int) {
+        if (amount <= 0) return
+        appContext.dataStore.edit { preferences ->
+            preferences[TOTAL_STARS_EARNED] = (preferences[TOTAL_STARS_EARNED] ?: 0) + amount
+        }
     }
 
     /** Skin ids the player owns. The default skin is always available. */

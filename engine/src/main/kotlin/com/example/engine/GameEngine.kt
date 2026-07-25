@@ -128,6 +128,14 @@ class GameEngine(
     var stars = 0
         private set
 
+    /**
+     * Star CURRENCY paid out for this completion (scaled by how much of the board was
+     * claimed and by the level number). Valid once status is LEVEL_COMPLETE. Distinct
+     * from [stars], which is the 0-3 performance rating shown on the level badge.
+     */
+    var starsEarned = 0
+        private set
+
     private val startingLives = initialLives
 
     // Enemy state
@@ -567,6 +575,10 @@ class GameEngine(
                             timeLimitSeconds = levelConfig.timeLimitSeconds,
                             livesRemaining = lives,
                             initialLives = startingLives
+                        )
+                        starsEarned = StarEconomy.award(
+                            level = levelConfig.levelNumber,
+                            capturedPercentage = capturedPercentage
                         )
                         status = GameStateStatus.LEVEL_COMPLETE
                     }

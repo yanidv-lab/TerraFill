@@ -426,6 +426,10 @@ fun GameScreen(
                                 letterSpacing = 1.sp
                             )
 
+                            // Your hero, wearing the equipped skin - so the colourway
+                            // you bought is on show every time a level begins.
+                            HeroPreview(skinId = state.skinId)
+
                             // New-spider reveal: shows the newcomer's portrait, name and
                             // what makes it dangerous, so nothing on the field is a mystery.
                             if (newEnemy != null) {
@@ -1443,6 +1447,52 @@ fun Playfield(
             }
         }
 
+    }
+}
+
+/**
+ * The player's caterpillar shown on the level-intro banner in whichever skin is
+ * equipped, gently breathing - a character-select style look at your hero before
+ * the countdown starts.
+ */
+@Composable
+private fun HeroPreview(skinId: String, modifier: Modifier = Modifier) {
+    val art = rememberSafeImage(R.drawable.sprite_caterpillar) ?: return
+    val skin = remember(skinId) { CaterpillarSkin.byId(skinId) }
+    val breathe = rememberInfiniteTransition(label = "hero").animateFloat(
+        initialValue = 0.97f,
+        targetValue = 1.05f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(1100),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroBreathe"
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(top = 6.dp)
+    ) {
+        Image(
+            bitmap = art,
+            contentDescription = "Your caterpillar",
+            colorFilter = skin.colorFilter,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .widthIn(max = 220.dp)
+                .height(64.dp)
+                .graphicsLayer {
+                    scaleX = breathe.value
+                    scaleY = breathe.value
+                }
+        )
+        Text(
+            text = skin.displayName,
+            color = Color.White.copy(alpha = 0.65f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 2.sp
+        )
     }
 }
 

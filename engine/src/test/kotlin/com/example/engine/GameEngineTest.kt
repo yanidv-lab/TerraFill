@@ -829,6 +829,62 @@ class GameEngineTest {
         assertTrue(LevelConfig.getConfig(15).spitterCount >= 1)
     }
 
+    // ---------------------------------------------------------------- star currency
+
+    @Test
+    fun `star pools grow with the level and jump at 10 and 15`() {
+        assertEquals(10, StarEconomy.poolForLevel(1))
+        assertEquals(20, StarEconomy.poolForLevel(2))
+        assertEquals(90, StarEconomy.poolForLevel(9))
+        // Non-linear step ups
+        assertTrue(
+            "L10 should jump well past the linear 100",
+            StarEconomy.poolForLevel(10) > StarEconomy.poolForLevel(9) + 20
+        )
+        assertTrue(
+            "L15 should jump again",
+            StarEconomy.poolForLevel(15) > StarEconomy.poolForLevel(14) + 20
+        )
+        // Monotonic all the way up
+        for (l in 1 until 20) {
+            assertTrue("pool must not shrink at L$l", StarEconomy.poolForLevel(l + 1) > StarEconomy.poolForLevel(l))
+        }
+    }
+
+    @Test
+    fun `stars paid out scale with how much of the board was claimed`() {
+        // 40% of level 1's pool of 10 = 4 stars
+        assertEquals(4, StarEconomy.award(level = 1, capturedPercentage = 40.0))
+        assertEquals(10, StarEconomy.award(level = 1, capturedPercentage = 100.0))
+        assertEquals(20, StarEconomy.award(level = 2, capturedPercentage = 100.0))
+        assertEquals(0, StarEconomy.award(level = 5, capturedPercentage = 0.0))
+        // A high level pays far better for the same effort
+        assertTrue(
+            StarEconomy.award(20, 70.0) > StarEconomy.award(2, 70.0) * 5
+        )
+    }
+
+    @Test
+    fun `finishing a level banks star currency proportional to the capture`() {
+        val engine = newEngine(targetPercentage = 50.0)
+        engine.enemies.add(enemyAt(7.0, 5.0))          // blocks the right half
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        assertEquals(GameStateStatus.LEVEL_COMPLETE, engine.status)
+        // 62.5% of level 1's pool of 10
+        assertEquals(StarEconomy.award(1, engine.capturedPercentage), engine.starsEarned)
+        assertTrue("a completed level must pay something", engine.starsEarned > 0)
+    }
+
+    @Test
+    fun `an unfinished level pays no star currency`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }     // still drawing, nothing closed
+        assertEquals(0, engine.starsEarned)
+    }
+
     // ---------------------------------------------------------------- mid-level save/restore
 
     @Test

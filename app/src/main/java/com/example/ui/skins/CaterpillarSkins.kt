@@ -16,7 +16,11 @@ import kotlin.math.sin
 data class CaterpillarSkin(
     val id: String,
     val displayName: String,
-    /** Stars required to unlock. The default skin is free. */
+    /**
+     * Stars required to unlock. The first colourway is cheap, then prices climb
+     * steeply - the finest skins are meant to be a long-term goal earned by
+     * replaying (and mastering) the later, higher-paying levels.
+     */
     val cost: Int,
     /** Degrees of hue rotation applied to the artwork (0 = untouched). */
     val hueShift: Float = 0f,
@@ -33,13 +37,13 @@ data class CaterpillarSkin(
         /** The full catalogue, cheapest first. [ALL].first() is always owned. */
         val ALL: List<CaterpillarSkin> = listOf(
             CaterpillarSkin("classic", "JUNGLE", 0, swatch = Color(0xFF6DBB4A)),
-            CaterpillarSkin("amber", "AMBER", 4, hueShift = -60f, saturation = 1.15f, swatch = Color(0xFFE8C33A)),
-            CaterpillarSkin("teal", "LAGOON", 8, hueShift = 55f, swatch = Color(0xFF3FBFA8)),
-            CaterpillarSkin("azure", "AZURE", 14, hueShift = 115f, swatch = Color(0xFF4A8FE0)),
-            CaterpillarSkin("violet", "ORCHID", 20, hueShift = 175f, swatch = Color(0xFFB14CFF)),
-            CaterpillarSkin("crimson", "CRIMSON", 28, hueShift = 235f, saturation = 1.1f, swatch = Color(0xFFE04B4B)),
-            CaterpillarSkin("shadow", "SHADOW", 36, saturation = 0.15f, hueShift = 1f, swatch = Color(0xFF7A7F85)),
-            CaterpillarSkin("gold", "GOLDEN", 50, hueShift = -48f, saturation = 1.6f, swatch = Color(0xFFFFC400))
+            CaterpillarSkin("amber", "AMBER", 50, hueShift = -60f, saturation = 1.15f, swatch = Color(0xFFE8C33A)),
+            CaterpillarSkin("teal", "LAGOON", 140, hueShift = 55f, swatch = Color(0xFF3FBFA8)),
+            CaterpillarSkin("azure", "AZURE", 320, hueShift = 115f, swatch = Color(0xFF4A8FE0)),
+            CaterpillarSkin("violet", "ORCHID", 600, hueShift = 175f, swatch = Color(0xFFB14CFF)),
+            CaterpillarSkin("crimson", "CRIMSON", 1000, hueShift = 235f, saturation = 1.1f, swatch = Color(0xFFE04B4B)),
+            CaterpillarSkin("shadow", "SHADOW", 1600, saturation = 0.15f, hueShift = 1f, swatch = Color(0xFF7A7F85)),
+            CaterpillarSkin("gold", "GOLDEN", 2600, hueShift = -48f, saturation = 1.6f, swatch = Color(0xFFFFC400))
         )
 
         /** The default, always-owned skin. */
