@@ -343,6 +343,7 @@ class GameEngine(
             for (enemy in enemies) {
                 enemy.setTarget(targetX, targetY)
                 enemy.update(grid, enemyDt)
+                enemy.advanceFacing(enemyDt)
             }
             // Eaters mutate the grid directly; refresh the version + percentage once.
             if (enemies.any { it.ateWall }) {
@@ -396,6 +397,15 @@ class GameEngine(
         val playerCx = playerX + 0.5
         val playerCy = playerY + 0.5
 
+        // Standing on reclaimed land with no trail out is SAFE ground: the roaming
+        // spiders live in the open territory and cannot reach the player there, even
+        // when their sprite brushes the boundary. Only the wall-hugging Crawler
+        // patrols the claimed edge, so it alone stays lethal on the surface. Once the
+        // player steps out (or is drawing a trail), everything is dangerous again.
+        val onSafeGround = !isDrawing &&
+            playerX in 0 until width && playerY in 0 until height &&
+            grid[playerX][playerY] == GridCellState.CAPTURED
+
         for (enemy in enemies) {
             // Enemy positions are cell coordinates; the visual center sits at +0.5.
             val ecx = enemy.x + 0.5
@@ -403,11 +413,14 @@ class GameEngine(
             val r = enemy.radius
 
             // Direct collision with the player square (approximated as a circle)
-            val dx = ecx - playerCx
-            val dy = ecy - playerCy
-            val hitDistance = r + PLAYER_HALF_SIZE
-            if (dx * dx + dy * dy < hitDistance * hitDistance) {
-                return true
+            val threatensPlayer = !onSafeGround || enemy.type == "Crawler"
+            if (threatensPlayer) {
+                val dx = ecx - playerCx
+                val dy = ecy - playerCy
+                val hitDistance = r + PLAYER_HALF_SIZE
+                if (dx * dx + dy * dy < hitDistance * hitDistance) {
+                    return true
+                }
             }
 
             // Collision with any trail cell the enemy circle overlaps
@@ -471,6 +484,11 @@ class GameEngine(
     /** True if any web projectile currently overlaps the player. */
     private fun checkWebCollisions(): Boolean {
         if (activeWebs.isEmpty()) return false
+        // Same safe-ground rule as spiders: webs are stopped by claimed land, so a
+        // player standing on it cannot be hit.
+        if (!isDrawing && playerX in 0 until width && playerY in 0 until height &&
+            grid[playerX][playerY] == GridCellState.CAPTURED
+        ) return false
         val pcx = playerX + 0.5
         val pcy = playerY + 0.5
         val hitDistance = WEB_RADIUS + PLAYER_HALF_SIZE

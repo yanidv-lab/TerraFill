@@ -329,7 +329,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Map enemies list (creates a new list so recomposition detects changes)
-        val enemiesCopy = activeEngine.enemies.map { it.copyWith() }
+        // Carry the smoothed rendering facing onto the snapshot, otherwise the UI
+        // would fall back to the raw velocity sign and flicker when enemies are boxed in.
+        val enemiesCopy = activeEngine.enemies.map { source ->
+            source.copyWith().also { it.facing = source.facing }
+        }
 
         _uiState.value = _uiState.value.copy(
             levelNumber = activeEngine.levelConfig.levelNumber,

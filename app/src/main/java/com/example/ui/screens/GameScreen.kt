@@ -1276,8 +1276,10 @@ fun Playfield(
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
-                    // New spider art faces LEFT natively; mirror when moving right
-                    val flip = enemy.vx > 0
+                    // New spider art faces LEFT natively; mirror when moving right.
+                    // Uses the engine's smoothed facing so a spider bouncing inside a
+                    // tight pocket doesn't mirror every frame (which read as flicker).
+                    val flip = enemy.facing > 0
 
                     // Crawl gait: a calm, low-frequency leg cadence (not a buzz). The
                     // body sways gently and bobs as if pushing off alternating legs;
