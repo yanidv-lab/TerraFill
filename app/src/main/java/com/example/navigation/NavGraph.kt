@@ -17,6 +17,7 @@ import com.example.ui.screens.LevelSelectScreen
 import com.example.ui.screens.MainMenuScreen
 import com.example.ui.screens.OptionsScreen
 import com.example.ui.screens.ScoresScreen
+import com.example.ui.screens.ShopScreen
 
 /**
  * Orchestrates the screens and type-safe arguments inside the Jetpack Compose navigation structure.
@@ -39,6 +40,7 @@ fun NavGraph(
         // 1. MAIN MENU SCREEN
         composable(route = Screen.MainMenu.route) {
             val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
+            val savedRun by viewModel.savedGame.collectAsStateWithLifecycle()
 
             // Menu soundtrack starts here and keeps playing through the sub-screens;
             // entering a level switches to the game track automatically.
@@ -57,7 +59,29 @@ fun NavGraph(
                 },
                 onPlay = { navController.navigate(Screen.LevelSelect.route) },
                 onOptions = { navController.navigate(Screen.Options.route) },
-                onScores = { navController.navigate(Screen.Scores.route) }
+                onScores = { navController.navigate(Screen.Scores.route) },
+                onShop = { navController.navigate(Screen.Shop.route) },
+                resumeLevel = savedRun?.level,
+                onResume = {
+                    val level = savedRun?.level ?: return@MainMenuScreen
+                    viewModel.resumeSavedGame()
+                    navController.navigate(Screen.Game.createRoute(level))
+                }
+            )
+        }
+
+        // 1e. SKINS SHOP
+        composable(route = Screen.Shop.route) {
+            val stars by viewModel.availableStars.collectAsStateWithLifecycle()
+            val owned by viewModel.ownedSkins.collectAsStateWithLifecycle()
+            val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
+            ShopScreen(
+                availableStars = stars,
+                ownedSkins = owned,
+                selectedSkin = equipped,
+                onBuy = { viewModel.buySkin(it) },
+                onEquip = { viewModel.equipSkin(it) },
+                onBack = { navController.popBackStack() }
             )
         }
 

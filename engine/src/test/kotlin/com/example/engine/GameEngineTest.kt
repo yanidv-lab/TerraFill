@@ -829,6 +829,54 @@ class GameEngineTest {
         assertTrue(LevelConfig.getConfig(15).spitterCount >= 1)
     }
 
+    // ---------------------------------------------------------------- mid-level save/restore
+
+    @Test
+    fun `a mid-level snapshot round-trips the claimed board and stats`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }          // claim the whole interior
+        val mask = engine.exportCapturedMask()
+        val score = engine.score
+        val captured = engine.capturedPercentage
+
+        val resumed = newEngine()
+        resumed.restoreSnapshot(mask, savedScore = score, savedLives = 2, savedTime = 42.0)
+
+        assertEquals(score, resumed.score)
+        assertEquals(2, resumed.lives)
+        assertEquals(42.0, resumed.timeRemainingSeconds, 1e-9)
+        assertEquals(captured, resumed.capturedPercentage, 1e-9)
+        assertEquals(mask, resumed.exportCapturedMask())
+    }
+
+    @Test
+    fun `a resumed run starts safely on the border with no trail`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }          // mid-draw, out in the open
+        val mask = engine.exportCapturedMask()
+
+        val resumed = newEngine()
+        resumed.restoreSnapshot(mask, savedScore = 100, savedLives = 3, savedTime = 60.0)
+
+        assertFalse(resumed.isDrawing)
+        assertTrue(resumed.trail.isEmpty())
+        assertEquals(0, resumed.playerY)
+        assertEquals(GridCellState.CAPTURED, resumed.grid[resumed.playerX][resumed.playerY])
+        assertEquals(GameStateStatus.RUNNING, resumed.status)
+    }
+
+    @Test
+    fun `a snapshot from a different board size is ignored`() {
+        val engine = newEngine()
+        val before = engine.exportCapturedMask()
+        engine.restoreSnapshot("101010", savedScore = 999, savedLives = 1, savedTime = 5.0)
+
+        assertEquals("board must be untouched", before, engine.exportCapturedMask())
+        assertEquals("stats must be untouched", 0, engine.score)
+    }
+
     // ---------------------------------------------------------------- movement stability
 
     @Test

@@ -691,6 +691,64 @@ class GameEngine(
     }
 
     /**
+     * Serializes the claimed territory as a compact '1'/'0' mask in column-major
+     * order, for mid-level saves. Trail cells are written as open ground: a resumed
+     * run always restarts the player safely on the border with no trail.
+     */
+    fun exportCapturedMask(): String {
+        val sb = StringBuilder(width * height)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                sb.append(if (grid[x][y] == GridCellState.CAPTURED) '1' else '0')
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Restores a mid-level save produced by [exportCapturedMask]: the claimed board,
+     * score, lives and remaining time. The player returns to the safe spawn with no
+     * trail and enemies keep their deterministic starting positions, so a resumed run
+     * is never mid-collision. Ignores a mask that does not match this board.
+     */
+    fun restoreSnapshot(capturedMask: String, savedScore: Int, savedLives: Int, savedTime: Double) {
+        if (capturedMask.length != width * height) return
+
+        var i = 0
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                grid[x][y] = if (capturedMask[i] == '1') GridCellState.CAPTURED else GridCellState.EMPTY
+                i++
+            }
+        }
+        // The border is always claimed, whatever the save said.
+        for (x in 0 until width) {
+            grid[x][0] = GridCellState.CAPTURED
+            grid[x][height - 1] = GridCellState.CAPTURED
+        }
+        for (y in 0 until height) {
+            grid[0][y] = GridCellState.CAPTURED
+            grid[width - 1][y] = GridCellState.CAPTURED
+        }
+
+        score = savedScore
+        lives = savedLives.coerceAtLeast(1)
+        timeRemainingSeconds = savedTime.coerceIn(1.0, levelConfig.timeLimitSeconds.toDouble())
+
+        trail.clear()
+        isDrawing = false
+        playerDirection = Direction.NONE
+        playerX = width / 2
+        playerY = 0
+        pathHistory.clear()
+        pathHistory.addFirst(Pair(playerX, playerY))
+        activeWebs.clear()
+        webs = emptyList()
+        gridVersion++
+        recalculateCapturedPercentage()
+    }
+
+    /**
      * Clears the crash reset state, resuming game loop operations.
      */
     fun clearReset() {

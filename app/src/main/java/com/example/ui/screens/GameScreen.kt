@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
+import com.example.ui.skins.CaterpillarSkin
 import com.example.ui.theme.*
 import kotlin.math.abs
 import kotlin.math.cos
@@ -951,6 +952,8 @@ fun Playfield(
     // reused. Each may be null if the asset is corrupt - draw sites fall back to a
     // simple vector creature so the game keeps running no matter what.
     val caterpillarSprite = rememberSafeImage(R.drawable.sprite_caterpillar)
+    // Equipped cosmetic skin: recolours the hero art without flattening its shading.
+    val skinFilter = remember(state.skinId) { CaterpillarSkin.byId(state.skinId).colorFilter }
     val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
     val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
@@ -1404,6 +1407,7 @@ fun Playfield(
                             targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
                             rotationDeg = rotationDeg + waddleDeg,
                             flipX = flipX,
+                            colorFilter = skinFilter,
                             scaleX = stretch,
                             scaleY = 1f - (stretch - 1f) * 0.7f
                         )

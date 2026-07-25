@@ -12,6 +12,8 @@ sealed class Screen(val route: String) {
 
     object Scores : Screen("scores")
 
+    object Shop : Screen("shop")
+
 
     object Game : Screen("game/{levelNumber}") {
         fun createRoute(levelNumber: Int) = "game/$levelNumber"
