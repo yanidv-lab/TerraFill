@@ -116,6 +116,30 @@ sealed class Enemy {
     open fun consumePendingSpit(): DoubleArray? = null
 
     /**
+     * True (once) when this enemy wants to leave a permanent web trap on its current
+     * cell. The engine places the trap and clears the request. Only the Weaver spins.
+     */
+    open fun consumePendingWebTrap(): Boolean = false
+
+    /**
+     * True (once) when this enemy wants to hatch offspring. The engine spawns a
+     * spiderling beside it and clears the request. Only the Broodmother breeds.
+     */
+    open fun consumePendingSpawn(): Boolean = false
+
+    /**
+     * Enemies that ignore claimed territory entirely, drifting straight through walls
+     * instead of bouncing off them (the Hornet flies over, the Phantom passes through).
+     */
+    open val ignoresWalls: Boolean get() = false
+
+    /**
+     * Enemies that can still reach the player while they stand on claimed ground.
+     * Deliberately rare: the wall-patrolling Crawler and the wall-passing Phantom.
+     */
+    open val threatensSafeGround: Boolean get() = type == "Crawler"
+
+    /**
      * Helper to clone the enemy instance.
      */
     abstract fun copyWith(x: Double = this.x, y: Double = this.y, vx: Double = this.vx, vy: Double = this.vy): Enemy
@@ -577,4 +601,230 @@ class Speeder(
     override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy {
         return Speeder(id, x, y, vx, vy, radius)
     }
+}
+
+/**
+ * Moves an enemy in a straight line, bouncing only off the field edges and passing
+ * straight through claimed territory. Used by the wall-ignoring fliers/ghosts.
+ */
+private fun Enemy.stepThroughWalls(grid: Array<Array<GridCellState>>, dt: Double) {
+    val width = grid.size
+    val height = if (width > 0) grid[0].size else 0
+    if (width == 0 || height == 0) return
+
+    val nextX = x + vx * dt
+    if (nextX < 0 || nextX >= width) vx = -vx else x = nextX
+
+    val nextY = y + vy * dt
+    if (nextY < 0 || nextY >= height) vy = -vy else y = nextY
+}
+
+/**
+ * Weaver - a slow spider that spins PERMANENT web traps across open ground. It
+ * drifts like a sluggish bouncer and, on a timer, leaves a sticky patch on the cell
+ * beneath it; touching one of those patches kills the player. It never traps claimed
+ * land (the engine only accepts traps on open ground), so the answer is to claim
+ * territory before the board is poisoned.
+ */
+class Weaver(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.42,
+    /** 0..1 difficulty: higher = spins more often. */
+    val aggression: Double = 0.0
+) : Enemy() {
+    override val type: String = "Weaver"
+
+    private val rng = Random(id.toLong() * 7919L + 13)
+    private var spinCooldown = FIRST_SPIN + rng.nextDouble() * 1.5
+    private var wantsTrap = false
+
+    /** 0..1 telegraph of the next web, so the UI can swell the abdomen before it spins. */
+    var spinCharge = 0.0
+        private set
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        val interval = SPIN_INTERVAL * (1.0 - 0.4 * aggression.coerceIn(0.0, 1.0))
+        spinCooldown -= dt
+        spinCharge = (1.0 - (spinCooldown / CHARGE_TIME)).coerceIn(0.0, 1.0)
+        if (spinCooldown <= 0.0) {
+            wantsTrap = true
+            spinCooldown = interval.coerceAtLeast(2.0)
+            spinCharge = 0.0
+        }
+        stepBounce(grid, dt)
+    }
+
+    override fun consumePendingWebTrap(): Boolean {
+        if (!wantsTrap) return false
+        wantsTrap = false
+        return true
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy =
+        Weaver(id, x, y, vx, vy, radius, aggression).also { it.spinCharge = spinCharge }
+
+    private companion object {
+        const val FIRST_SPIN = 3.0
+        const val SPIN_INTERVAL = 5.0
+        const val CHARGE_TIME = 1.0
+    }
+}
+
+/**
+ * Hornet - a fast flier that ignores the board entirely, crossing claimed territory
+ * as easily as open ground and bouncing only off the outer edges. It cannot touch a
+ * player standing on claimed land (it is only a threat while you are out drawing),
+ * so it punishes long exposed runs rather than camping.
+ */
+class Hornet(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.38
+) : Enemy() {
+    override val type: String = "Hornet"
+
+    override val ignoresWalls: Boolean get() = true
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        stepThroughWalls(grid, dt)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy =
+        Hornet(id, x, y, vx, vy, radius)
+}
+
+/**
+ * Phantom - a slow spectral spider that drifts THROUGH claimed territory and is the
+ * one roaming enemy that can still reach a player standing on it. Deliberately the
+ * slowest thing on the board and visibly translucent, so it reads as a creeping
+ * threat to be walked away from rather than an unfair ambush.
+ */
+class Phantom(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.44
+) : Enemy() {
+    override val type: String = "Phantom"
+
+    override val ignoresWalls: Boolean get() = true
+    override val threatensSafeGround: Boolean get() = true
+
+    private var targetX = x
+    private var targetY = y
+
+    override fun setTarget(x: Double, y: Double) {
+        targetX = x
+        targetY = y
+    }
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        // A gentle, constant drift toward the player - relentless but easily outpaced.
+        val speed = hypot(vx, vy).coerceAtLeast(0.8)
+        val dx = targetX - (x + 0.5)
+        val dy = targetY - (y + 0.5)
+        val dist = hypot(dx, dy)
+        if (dist > 1e-6) {
+            val steer = (DRIFT_TURN_RATE * dt).coerceAtMost(1.0)
+            vx += ((dx / dist * speed) - vx) * steer
+            vy += ((dy / dist * speed) - vy) * steer
+            val mag = hypot(vx, vy)
+            if (mag > 1e-6) {
+                vx = vx / mag * speed
+                vy = vy / mag * speed
+            }
+        }
+        stepThroughWalls(grid, dt)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy =
+        Phantom(id, x, y, vx, vy, radius)
+
+    private companion object {
+        const val DRIFT_TURN_RATE = 0.8   // very lazy re-aiming
+    }
+}
+
+/**
+ * Broodmother - a large, slow queen that periodically hatches a fast spiderling.
+ * She cannot be killed, so she is really a timer: clear the level before her brood
+ * fills the board. The engine caps how many children may be alive at once.
+ */
+class Broodmother(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.6,
+    /** 0..1 difficulty: higher = hatches faster. */
+    val aggression: Double = 0.0
+) : Enemy() {
+    override val type: String = "Broodmother"
+
+    private val rng = Random(id.toLong() * 104729L + 5)
+    private var hatchCooldown = FIRST_HATCH + rng.nextDouble() * 2.0
+    private var wantsSpawn = false
+
+    /** 0..1 telegraph of the next hatch so the UI can pulse the egg sac. */
+    var broodCharge = 0.0
+        private set
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        val interval = HATCH_INTERVAL * (1.0 - 0.4 * aggression.coerceIn(0.0, 1.0))
+        hatchCooldown -= dt
+        broodCharge = (1.0 - (hatchCooldown / CHARGE_TIME)).coerceIn(0.0, 1.0)
+        if (hatchCooldown <= 0.0) {
+            wantsSpawn = true
+            hatchCooldown = interval.coerceAtLeast(3.0)
+            broodCharge = 0.0
+        }
+        stepBounce(grid, dt)
+    }
+
+    override fun consumePendingSpawn(): Boolean {
+        if (!wantsSpawn) return false
+        wantsSpawn = false
+        return true
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy =
+        Broodmother(id, x, y, vx, vy, radius, aggression).also { it.broodCharge = broodCharge }
+
+    private companion object {
+        const val FIRST_HATCH = 6.0
+        const val HATCH_INTERVAL = 8.0
+        const val CHARGE_TIME = 1.2
+    }
+}
+
+/**
+ * Spiderling - a small, quick child hatched by a [Broodmother]. Behaves like a
+ * lightweight bouncer; its small radius keeps a swarm survivable.
+ */
+class Spiderling(
+    override val id: Int,
+    override var x: Double,
+    override var y: Double,
+    override var vx: Double,
+    override var vy: Double,
+    override val radius: Double = 0.26
+) : Enemy() {
+    override val type: String = "Spiderling"
+
+    override fun update(grid: Array<Array<GridCellState>>, dt: Double) {
+        stepBounce(grid, dt)
+    }
+
+    override fun copyWith(x: Double, y: Double, vx: Double, vy: Double): Enemy =
+        Spiderling(id, x, y, vx, vy, radius)
 }

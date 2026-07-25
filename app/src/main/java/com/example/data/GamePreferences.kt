@@ -57,6 +57,13 @@ class GamePreferences(context: Context) {
         // replayed for more), minus whatever skins have cost.
         private val TOTAL_STARS_EARNED = intPreferencesKey("total_stars_earned")
 
+        // Stars spent on consumables (extra lives). Skin spend is derived from the
+        // owned set, so only consumable spend needs its own running total.
+        private val STARS_SPENT_CONSUMABLES = intPreferencesKey("stars_spent_consumables")
+
+        /** Spare lives banked from the shop, added on top of the standard three. */
+        private val EXTRA_LIVES = intPreferencesKey("extra_lives")
+
         // Caterpillar skins bought with stars
         private val OWNED_SKINS = stringSetPreferencesKey("owned_skins")
         private val SELECTED_SKIN = stringPreferencesKey("selected_skin")
@@ -81,6 +88,36 @@ class GamePreferences(context: Context) {
         if (amount <= 0) return
         appContext.dataStore.edit { preferences ->
             preferences[TOTAL_STARS_EARNED] = (preferences[TOTAL_STARS_EARNED] ?: 0) + amount
+        }
+    }
+
+    /** Stars spent on consumables so far. */
+    val starsSpentOnConsumables: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        preferences[STARS_SPENT_CONSUMABLES] ?: 0
+    }
+
+    /** Spare lives currently banked (0 when none are held). */
+    val extraLives: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        preferences[EXTRA_LIVES] ?: 0
+    }
+
+    /** Buys one spare life, recording the star spend in the same transaction. */
+    suspend fun purchaseExtraLife(cost: Int, cap: Int) {
+        appContext.dataStore.edit { preferences ->
+            val held = preferences[EXTRA_LIVES] ?: 0
+            if (held >= cap) return@edit
+            preferences[EXTRA_LIVES] = held + 1
+            preferences[STARS_SPENT_CONSUMABLES] = (preferences[STARS_SPENT_CONSUMABLES] ?: 0) + cost
+        }
+    }
+
+    /**
+     * Updates the banked spare lives - used to carry survivors into the next level
+     * and to wipe the bank when a run ends.
+     */
+    suspend fun setExtraLives(count: Int) {
+        appContext.dataStore.edit { preferences ->
+            preferences[EXTRA_LIVES] = count.coerceAtLeast(0)
         }
     }
 

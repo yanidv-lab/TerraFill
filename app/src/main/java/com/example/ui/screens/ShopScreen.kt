@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
@@ -45,6 +46,10 @@ fun ShopScreen(
     onBuy: (CaterpillarSkin) -> Unit,
     onEquip: (CaterpillarSkin) -> Unit,
     onBack: () -> Unit,
+    extraLives: Int = 0,
+    extraLifeCost: Int = 100,
+    maxExtraLives: Int = 3,
+    onBuyExtraLife: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val portrait = rememberSafeImage(R.drawable.sprite_caterpillar)
@@ -90,6 +95,15 @@ fun ShopScreen(
                 textAlign = TextAlign.Center
             )
 
+            // Consumable: spare lives, carried between levels until a run is lost
+            ExtraLifeCard(
+                held = extraLives,
+                cost = extraLifeCost,
+                cap = maxExtraLives,
+                affordable = availableStars >= extraLifeCost,
+                onBuy = onBuyExtraLife
+            )
+
             // Two-column grid of skins
             val skins = CaterpillarSkin.ALL
             for (row in skins.chunked(2)) {
@@ -113,6 +127,89 @@ fun ShopScreen(
                     if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                 }
             }
+        }
+    }
+}
+
+/**
+ * Shop card for the spare-life consumable: shows how many are banked, what one
+ * costs, and how they behave (they survive level completions but are lost when a
+ * level is lost).
+ */
+@Composable
+private fun ExtraLifeCard(
+    held: Int,
+    cost: Int,
+    cap: Int,
+    affordable: Boolean,
+    onBuy: () -> Unit
+) {
+    val full = held >= cap
+    val enabled = !full && affordable
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1F0A14).copy(alpha = 0.9f))
+            .border(2.dp, NeonMagenta.copy(alpha = if (enabled) 0.85f else 0.35f), RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onBuy)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = NeonMagenta,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "  EXTRA LIFE",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+            }
+            Text(
+                text = if (full) "MAX $held/$cap" else "HELD $held/$cap",
+                color = if (full) NeonYellow else Color.White.copy(alpha = 0.75f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Text(
+            text = "Start every level with an extra life. Kept when you clear a level, lost when a level beats you.",
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            lineHeight = 14.sp
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = if (enabled) Icons.Default.Star else Icons.Default.Lock,
+                contentDescription = null,
+                tint = if (enabled) NeonYellow else Color.White.copy(alpha = 0.35f),
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = when {
+                    full -> "  BANK FULL"
+                    affordable -> "  $cost  ·  TAP TO BUY"
+                    else -> "  $cost  ·  NOT ENOUGH STARS"
+                },
+                color = if (enabled) NeonYellow else Color.White.copy(alpha = 0.35f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }

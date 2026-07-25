@@ -120,7 +120,8 @@ private fun DrawScope.drawSprite(
     flipX: Boolean,
     colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
     scaleX: Float = 1f,
-    scaleY: Float = 1f
+    scaleY: Float = 1f,
+    alpha: Float = 1f
 ) {
     val aspect = image.width.toFloat() / image.height.toFloat()
     val dw: Float
@@ -146,7 +147,8 @@ private fun DrawScope.drawSprite(
             ),
             dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
             filterQuality = FilterQuality.High,
-            colorFilter = colorFilter
+            colorFilter = colorFilter,
+            alpha = alpha
         )
     }
 }
@@ -1312,6 +1314,31 @@ fun Playfield(
                     )
                 }
 
+                // ---------- 4c. Sticky web traps spun by Weavers ----------
+                for ((tx, ty) in state.webTraps) {
+                    val c = Offset((tx + 0.5f) * cellW, (ty + 0.5f) * cellH)
+                    val r = cellMin * 0.46f
+                    // Silk pad: concentric rings crossed by radial threads
+                    drawCircle(Color.White.copy(alpha = 0.16f), r, c)
+                    for (ring in 1..2) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.5f),
+                            radius = r * (ring / 2.4f),
+                            center = c,
+                            style = Stroke(width = cellMin * 0.045f)
+                        )
+                    }
+                    for (k in 0 until 6) {
+                        val a = k * (Math.PI / 3)
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.45f),
+                            start = c,
+                            end = c + Offset(cos(a).toFloat() * r, sin(a).toFloat() * r),
+                            strokeWidth = cellMin * 0.035f
+                        )
+                    }
+                }
+
                 // ---------- 5. Enemies: distinct spider per type ----------
                 for (enemy in state.enemies) {
                     val center = Offset(
@@ -1325,6 +1352,11 @@ fun Playfield(
                         "Speeder" -> Color(0xFFFFD500)
                         "Eater" -> Color(0xFFB14CFF)     // violet muncher
                         "Spitter" -> Color(0xFFAEEA00)   // venom yellow-green
+                        "Weaver" -> Color(0xFFE0E0E0)    // pale silk
+                        "Hornet" -> Color(0xFFFFC107)    // wasp amber
+                        "Phantom" -> Color(0xFF9FE8FF)   // spectral blue
+                        "Broodmother" -> Color(0xFF7B1FA2) // deep royal purple
+                        "Spiderling" -> Color(0xFFCE93D8) // pale brood
                         else -> NeonGreen   // Jumper
                     }
 
@@ -1347,6 +1379,38 @@ fun Playfield(
                             style = Stroke(width = cellMin * 0.12f)
                         )
                     }
+                    // Weaver telegraph: a silky ring swells as the next trap is spun.
+                    if (enemy.type == "Weaver") {
+                        val charge = ((enemy as? Weaver)?.spinCharge ?: 0.0).toFloat()
+                        if (charge > 0.05f) {
+                            drawCircle(
+                                color = Color.White,
+                                radius = cellMin * (0.9f + charge * 0.9f),
+                                center = center,
+                                alpha = 0.35f * charge,
+                                style = Stroke(width = cellMin * 0.09f)
+                            )
+                        }
+                    }
+                    // Broodmother telegraph: the egg sac glows before it hatches.
+                    if (enemy.type == "Broodmother") {
+                        val charge = ((enemy as? Broodmother)?.broodCharge ?: 0.0).toFloat()
+                        if (charge > 0.03f) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFE1BEE7).copy(alpha = 0.55f * charge),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = cellMin * 2.4f
+                                ),
+                                radius = cellMin * 2.4f,
+                                center = center
+                            )
+                        }
+                    }
+                    // Phantom: a spectral shimmer, drawn semi-transparent below.
                     // Spitter telegraph: a warning ring tightens as it charges a web shot.
                     if (enemy.type == "Spitter") {
                         val charge = ((enemy as? Spitter)?.spitCharge ?: 0.0).toFloat()
@@ -1386,6 +1450,11 @@ fun Playfield(
                         "Speeder" -> spiderRedSprite
                         "Eater" -> spiderRedSprite
                         "Spitter" -> spiderBlueSprite
+                        "Weaver" -> spiderGreenSprite
+                        "Hornet" -> spiderRedSprite
+                        "Phantom" -> spiderBlueSprite
+                        "Broodmother" -> spiderRedSprite
+                        "Spiderling" -> spiderGreenSprite
                         else -> spiderGreenSprite   // Jumper
                     }
                     val tint = when (enemy.type) {
@@ -1401,11 +1470,32 @@ fun Playfield(
                         "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(
                             Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop
                         )
+                        "Weaver" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFDCDCDC), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Hornet" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFFFC107), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Phantom" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFB3E5FC), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Broodmother" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFF8E24AA), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
+                        "Spiderling" -> androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0xFFCE93D8), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                        )
                         else -> null
                     }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
-                    val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
+                    val sizeScale = when (enemy.type) {
+                        "Hunter" -> 1.15f
+                        "Broodmother" -> 1.7f     // an imposing queen
+                        "Spiderling" -> 0.5f      // scurrying babies
+                        "Hornet" -> 0.85f
+                        else -> 1f
+                    }
                     // New spider art faces LEFT natively; mirror when moving right.
                     // Uses the engine's smoothed facing so a spider bouncing inside a
                     // tight pocket doesn't mirror every frame (which read as flicker).
@@ -1434,6 +1524,9 @@ fun Playfield(
                         lift = lift
                     )
                     if (sprite != null) {
+                        // Phantoms are see-through: you can watch them slide under
+                        // your claimed land, which is what makes them unsettling.
+                        val ghost = enemy.type == "Phantom"
                         drawSprite(
                             image = sprite,
                             center = bodyCenter,
@@ -1442,7 +1535,8 @@ fun Playfield(
                             flipX = flip,
                             colorFilter = tint,
                             scaleX = stretch,
-                            scaleY = 1f / stretch
+                            scaleY = 1f / stretch,
+                            alpha = if (ghost) 0.55f else 1f
                         )
                     } else {
                         // Asset failed to decode: draw a simple spider so gameplay continues

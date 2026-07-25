@@ -120,6 +120,8 @@ class GameEngine(
     var lastCollectedPowerUp: PowerUpType? = null
         private set
 
+    private var nextEnemyId = 1
+    private val broodRandom = Random(levelConfig.levelNumber * 7717 + 3)
     private var powerUpSpawnTimer = POWERUP_FIRST_SPAWN
     private var powerUpIdCounter = 1
     private val powerUpRandom = Random(levelConfig.levelNumber * 97 + 7)
@@ -146,6 +148,19 @@ class GameEngine(
     private val activeWebs = mutableListOf<WebProjectile>()
     /** Read-only snapshot of in-flight webs for the UI, refreshed every tick. */
     var webs: List<WebShot> = emptyList()
+        private set
+
+    /**
+     * Permanent sticky web patches spun by Weavers. Touching one is fatal. They only
+     * sit on open ground, and claiming a region wipes any patch inside it - so
+     * capturing territory is also how the board gets cleaned up.
+     */
+    var webTraps: List<Pair<Int, Int>> = emptyList()
+        private set
+    private val activeTraps = LinkedHashSet<Pair<Int, Int>>()
+
+    /** Monotonic counter of spun traps, so the UI can animate each new one. */
+    var webTrapCount = 0
         private set
 
     // Stats
@@ -186,6 +201,10 @@ class GameEngine(
         /** Web projectile tuning. */
         const val WEB_RADIUS = 0.34             // collision radius of a web glob (cells)
         const val WEB_LIFE = 4.0                // seconds before a web dissipates
+
+        /** Weaver / Broodmother limits that keep late levels winnable. */
+        const val MAX_WEB_TRAPS = 10
+        const val MAX_SPIDERLINGS = 4
 
         /** 4-way steps used when searching for a free cell. */
         val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
@@ -289,6 +308,66 @@ class GameEngine(
             val ry = random.nextDouble((height * 0.45), (height - 5).toDouble())
             enemies.add(Spitter(idCounter++, rx, ry, aggression = levelConfig.enemyAggression))
         }
+
+        // Spawn Weavers (web-trap spinners): slow drifters.
+        for (i in 0 until levelConfig.weaverCount) {
+            val rx = random.nextDouble(5.0, (width - 6).toDouble())
+            val ry = random.nextDouble(5.0, (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.55
+            enemies.add(
+                Weaver(
+                    idCounter++, rx, ry,
+                    speed * kotlin.math.cos(angle), speed * kotlin.math.sin(angle),
+                    aggression = levelConfig.enemyAggression
+                )
+            )
+        }
+
+        // Spawn Hornets (fast fliers that ignore walls entirely).
+        for (i in 0 until levelConfig.hornetCount) {
+            val rx = random.nextDouble(3.0, (width - 4).toDouble())
+            val ry = random.nextDouble(3.0, (height - 4).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 1.5
+            enemies.add(
+                Hornet(
+                    idCounter++, rx, ry,
+                    speed * kotlin.math.cos(angle), speed * kotlin.math.sin(angle)
+                )
+            )
+        }
+
+        // Spawn Phantoms (slow wall-passing ghosts) far from the player's spawn.
+        for (i in 0 until levelConfig.phantomCount) {
+            val rx = random.nextDouble(4.0, (width - 5).toDouble())
+            val ry = random.nextDouble((height * 0.6), (height - 4).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.42
+            enemies.add(
+                Phantom(
+                    idCounter++, rx, ry,
+                    speed * kotlin.math.cos(angle), speed * kotlin.math.sin(angle)
+                )
+            )
+        }
+
+        // Spawn Broodmothers (slow queens that hatch spiderlings).
+        for (i in 0 until levelConfig.broodmotherCount) {
+            val rx = random.nextDouble(6.0, (width - 7).toDouble())
+            val ry = random.nextDouble((height * 0.5), (height - 6).toDouble())
+            val angle = random.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 0.4
+            enemies.add(
+                Broodmother(
+                    idCounter++, rx, ry,
+                    speed * kotlin.math.cos(angle), speed * kotlin.math.sin(angle),
+                    aggression = levelConfig.enemyAggression
+                )
+            )
+        }
+
+        nextEnemyId = idCounter
     }
 
     /**
@@ -367,13 +446,17 @@ class GameEngine(
                 val spit = enemy.consumePendingSpit() ?: continue
                 activeWebs.add(WebProjectile(enemy.x, enemy.y, spit[0], spit[1], WEB_LIFE))
             }
+
+            // Weavers leave sticky patches; Broodmothers hatch spiderlings.
+            handleWeaverTraps()
+            handleBroodHatching()
         }
 
         // 2b. Advance web projectiles (frozen/slowed with the rest of the enemies).
         updateWebs(enemyDt)
 
         // 3. Check enemy-player direct collision, trail collision, or a web hit
-        if (checkEnemyCollisions() || checkWebCollisions()) {
+        if (checkEnemyCollisions() || checkWebCollisions() || checkWebTrapCollision()) {
             handleCrash()
             return
         }
@@ -385,7 +468,9 @@ class GameEngine(
             performPlayerGridStep()
 
             // Re-check collisions after the player moves
-            if (status == GameStateStatus.RUNNING && (checkEnemyCollisions() || checkWebCollisions())) {
+            if (status == GameStateStatus.RUNNING &&
+                (checkEnemyCollisions() || checkWebCollisions() || checkWebTrapCollision())
+            ) {
                 handleCrash()
                 break
             }
@@ -424,7 +509,7 @@ class GameEngine(
             val r = enemy.radius
 
             // Direct collision with the player square (approximated as a circle)
-            val threatensPlayer = !onSafeGround || enemy.type == "Crawler"
+            val threatensPlayer = !onSafeGround || enemy.threatensSafeGround
             if (threatensPlayer) {
                 val dx = ecx - playerCx
                 val dy = ecy - playerCy
@@ -490,6 +575,58 @@ class GameEngine(
         }
         webs = if (activeWebs.isEmpty()) emptyList()
         else activeWebs.map { WebShot(it.x, it.y, it.vx, it.vy) }
+    }
+
+    /**
+     * Places a sticky patch under any Weaver that finished spinning. Patches only
+     * stick to open ground (never claimed land, never the player's own cell) and are
+     * capped so the board can always be finished - the oldest patch decays away when
+     * a new one would exceed the cap.
+     */
+    private fun handleWeaverTraps() {
+        for (enemy in enemies) {
+            if (!enemy.consumePendingWebTrap()) continue
+            val tx = floor(enemy.x).toInt().coerceIn(0, width - 1)
+            val ty = floor(enemy.y).toInt().coerceIn(0, height - 1)
+            if (grid[tx][ty] != GridCellState.EMPTY) continue
+            if (tx == playerX && ty == playerY) continue
+            if (!activeTraps.add(Pair(tx, ty))) continue
+            if (activeTraps.size > MAX_WEB_TRAPS) {
+                activeTraps.iterator().let { if (it.hasNext()) { it.next(); it.remove() } }
+            }
+            webTraps = activeTraps.toList()
+            webTrapCount++
+        }
+    }
+
+    /**
+     * Hatches a spiderling beside any Broodmother that finished brooding, as long as
+     * the brood has not already reached its cap (a queen left alone would otherwise
+     * fill the board and make the level unwinnable).
+     */
+    private fun handleBroodHatching() {
+        for (enemy in enemies.toList()) {
+            if (!enemy.consumePendingSpawn()) continue
+            if (enemies.count { it.type == "Spiderling" } >= MAX_SPIDERLINGS) continue
+            val angle = broodRandom.nextDouble(0.0, 2.0 * Math.PI)
+            val speed = levelConfig.enemySpeed * 1.15
+            val sx = (enemy.x + kotlin.math.cos(angle)).coerceIn(1.0, (width - 2).toDouble())
+            val sy = (enemy.y + kotlin.math.sin(angle)).coerceIn(1.0, (height - 2).toDouble())
+            enemies.add(
+                Spiderling(
+                    id = nextEnemyId++,
+                    x = sx, y = sy,
+                    vx = speed * kotlin.math.cos(angle),
+                    vy = speed * kotlin.math.sin(angle)
+                )
+            )
+        }
+    }
+
+    /** True if the player is standing on a sticky web patch left by a Weaver. */
+    private fun checkWebTrapCollision(): Boolean {
+        if (activeTraps.isEmpty()) return false
+        return activeTraps.contains(Pair(playerX, playerY))
     }
 
     /** True if any web projectile currently overlaps the player. */
@@ -567,6 +704,14 @@ class GameEngine(
 
                     // Any power-up swallowed by the newly captured area is removed
                     powerUps.removeAll { grid[it.x][it.y] == GridCellState.CAPTURED }
+
+                    // Claiming land also sweeps away any web traps inside it.
+                    if (activeTraps.isNotEmpty()) {
+                        val cleaned = activeTraps.removeAll { (tx, ty) ->
+                            grid[tx][ty] == GridCellState.CAPTURED
+                        }
+                        if (cleaned) webTraps = activeTraps.toList()
+                    }
 
                     recalculateCapturedPercentage()
 
@@ -690,6 +835,11 @@ class GameEngine(
         // Clear in-flight webs so the player isn't instantly re-hit on reset.
         activeWebs.clear()
         webs = emptyList()
+        // A fresh life also clears the sticky patches and any hatched brood, so the
+        // player is never handed an already-poisoned board.
+        activeTraps.clear()
+        webTraps = emptyList()
+        enemies.removeAll { it.type == "Spiderling" }
 
         if (lives <= 0) {
             status = GameStateStatus.GAME_OVER

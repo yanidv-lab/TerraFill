@@ -874,6 +874,113 @@ class GameEngineTest {
         assertEquals(4.0, engine.enemies.first().y, 1e-9)
     }
 
+    // ---------------------------------------------------------------- new enemy roster
+
+    @Test
+    fun `the campaign now runs to thirty levels with staged debuts`() {
+        assertEquals(30, LevelConfig.TOTAL_LEVELS)
+        assertEquals("Weaver", LevelConfig.newEnemyAt(18)?.type)
+        assertEquals("Hornet", LevelConfig.newEnemyAt(21)?.type)
+        assertEquals("Phantom", LevelConfig.newEnemyAt(24)?.type)
+        assertEquals("Broodmother", LevelConfig.newEnemyAt(27)?.type)
+    }
+
+    @Test
+    fun `every debut enemy actually spawns on its level, even late on`() {
+        for (level in listOf(18, 21, 24, 27)) {
+            val intro = LevelConfig.newEnemyAt(level)!!
+            val engine = GameEngine(LevelConfig.getConfig(level))
+            assertTrue(
+                "L$level announces ${intro.type} but none spawned",
+                engine.enemies.any { it.type == intro.type }
+            )
+        }
+    }
+
+    @Test
+    fun `late levels stay within the roster budget`() {
+        for (level in 1..30) {
+            val engine = GameEngine(LevelConfig.getConfig(level))
+            assertTrue(
+                "L$level spawned ${engine.enemies.size} enemies",
+                engine.enemies.size <= 8
+            )
+        }
+    }
+
+    @Test
+    fun `weaver spins a sticky trap onto open ground and it kills on contact`() {
+        val config = LevelConfig(
+            levelNumber = 18, gridWidth = 12, gridHeight = 12,
+            bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
+            hunterCount = 0, speederCount = 0, weaverCount = 1,
+            enemySpeed = 0.0, enemyAggression = 1.0,
+            targetPercentage = 99.0, timeLimitSeconds = 300
+        )
+        val engine = GameEngine(config)
+        // Park the weaver on a known open cell and let it spin.
+        val weaver = engine.enemies.first { it.type == "Weaver" }
+        weaver.x = 5.0
+        weaver.y = 5.0
+        weaver.vx = 0.0
+        weaver.vy = 0.0
+        var guard = 0
+        while (engine.webTraps.isEmpty() && guard++ < 400) engine.tick(0.05)
+
+        assertTrue("weaver should have spun a trap", engine.webTraps.isNotEmpty())
+        val (tx, ty) = engine.webTraps.first()
+        assertEquals("traps only stick to open ground", GridCellState.EMPTY, engine.grid[tx][ty])
+    }
+
+    @Test
+    fun `hornets and phantoms pass straight through claimed land`() {
+        val grid = Array(12) { x ->
+            Array(12) { y ->
+                if (x == 6) GridCellState.CAPTURED else GridCellState.EMPTY
+            }
+        }
+        val hornet = Hornet(1, 4.0, 5.0, 6.0, 0.0)
+        repeat(30) { hornet.update(grid, 0.05) }
+        assertTrue("hornet should have crossed the wall at x=6", hornet.x > 6.5)
+
+        val phantom = Phantom(2, 4.0, 5.0, 3.0, 0.0)
+        phantom.setTarget(11.0, 5.0)
+        repeat(60) { phantom.update(grid, 0.05) }
+        assertTrue("phantom should have drifted through the wall", phantom.x > 6.5)
+    }
+
+    @Test
+    fun `only the phantom and crawler threaten a player on claimed ground`() {
+        // Phantom reaches the player standing safely on the border.
+        val ghosted = newEngine()
+        ghosted.enemies.add(Phantom(1, ghosted.playerX.toDouble(), 0.0, 0.0, 0.0))
+        ghosted.tick(0.05)
+        assertEquals("a phantom must reach you on claimed land", 2, ghosted.lives)
+
+        // A hornet in the very same spot cannot.
+        val buzzed = newEngine()
+        buzzed.enemies.add(Hornet(1, buzzed.playerX.toDouble(), 0.0, 0.0, 0.0))
+        buzzed.tick(0.05)
+        assertEquals("a hornet must not reach you on claimed land", 3, buzzed.lives)
+    }
+
+    @Test
+    fun `broodmother hatches spiderlings up to a cap`() {
+        val config = LevelConfig(
+            levelNumber = 27, gridWidth = 16, gridHeight = 16,
+            bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
+            hunterCount = 0, speederCount = 0, broodmotherCount = 1,
+            enemySpeed = 2.0, enemyAggression = 1.0,
+            targetPercentage = 99.0, timeLimitSeconds = 900
+        )
+        val engine = GameEngine(config)
+        repeat(2000) { engine.tick(0.05) }   // plenty of time to breed
+
+        val brood = engine.enemies.count { it.type == "Spiderling" }
+        assertTrue("the queen should have hatched at least one child", brood >= 1)
+        assertTrue("the brood must stay capped, was $brood", brood <= 4)
+    }
+
     // ---------------------------------------------------------------- star currency
 
     @Test
