@@ -239,6 +239,18 @@ class SoundManager(context: Context) {
         playSfx(ToneSweep(180f, 40f, 350f, "square", 0.45f))
     }
 
+    /**
+     * Clock warning. [urgent] = the final ten seconds: faster, higher and louder
+     * than the first (30 second) warning so the two are instantly distinguishable.
+     */
+    fun timeWarning(urgent: Boolean) {
+        if (urgent) {
+            playSfx(RetroArpeggio(floatArrayOf(1046.50f, 1046.50f, 1046.50f), 70f, "square", 0.42f))
+        } else {
+            playSfx(RetroArpeggio(floatArrayOf(880.00f, 880.00f), 95f, "square", 0.3f))
+        }
+    }
+
     fun levelComplete() {
         // Triumphant rising arpeggio (C5, G5, C6, E6, G6)
         playSfx(RetroArpeggio(floatArrayOf(523.25f, 783.99f, 1046.50f, 1318.51f, 1567.98f), 100f, "square", 0.4f))

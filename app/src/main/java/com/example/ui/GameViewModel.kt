@@ -78,6 +78,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lastCrashCount = 0
     private var lastPowerUpCount = 0
     private var lastStatus = GameStateStatus.RUNNING
+    // Clock-warning edges, so each threshold sounds exactly once per level
+    private var warnedAt30 = false
+    private var warnedAt10 = false
 
     // Grid snapshot cache: only rebuilt when the engine's grid actually changes,
     // so most frames (which only move enemies) allocate nothing for the grid.
@@ -141,6 +144,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastCrashCount = 0
         lastPowerUpCount = 0
         lastStatus = GameStateStatus.RUNNING
+        warnedAt30 = false
+        warnedAt10 = false
         cachedGridVersion = -1
         sound.startMusic()
         viewModelScope.launch { preferences.saveLastPlayedLevel(config.levelNumber) }
@@ -201,6 +206,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (activeEngine.powerUpCollectedCount > lastPowerUpCount) {
             lastPowerUpCount = activeEngine.powerUpCollectedCount
             sound.powerUp()
+        }
+
+        // Clock warnings: one beep pair at 30s left, a sharper triple at 10s.
+        val timeLeft = activeEngine.timeRemainingSeconds
+        if (!warnedAt30 && timeLeft <= 30.0 && timeLeft > 10.0) {
+            warnedAt30 = true
+            sound.timeWarning(urgent = false)
+        }
+        if (!warnedAt10 && timeLeft <= 10.0) {
+            warnedAt10 = true
+            sound.timeWarning(urgent = true)
         }
         if (activeEngine.status != lastStatus) {
             when (activeEngine.status) {

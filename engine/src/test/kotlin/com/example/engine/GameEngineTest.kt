@@ -451,13 +451,67 @@ class GameEngineTest {
     }
 
     @Test
-    fun `every level up is a felt difficulty step`() {
+    fun `every level up is a felt difficulty step, and nothing ever gets easier`() {
         for (l in 1 until 15) {
             val a = LevelConfig.getConfig(l)
             val b = LevelConfig.getConfig(l + 1)
+            // Speed is the smooth per-level pressure; the rest must never regress.
             assertTrue("speed step L$l", b.enemySpeed > a.enemySpeed + 0.3)
-            assertTrue("target step L$l", b.targetPercentage >= a.targetPercentage)
-            assertTrue("time step L$l", b.timeLimitSeconds <= a.timeLimitSeconds)
+            assertTrue("target never drops L$l", b.targetPercentage >= a.targetPercentage)
+            assertTrue("time never grows L$l", b.timeLimitSeconds <= a.timeLimitSeconds)
+        }
+    }
+
+    @Test
+    fun `difficulty is staggered - a level up does not raise every dimension at once`() {
+        // Across the campaign there must be levels where the target holds steady and
+        // levels where the clock holds steady, so pressure arrives one axis at a time.
+        var targetHeldSomewhere = false
+        var timeHeldSomewhere = false
+        for (l in 1 until 20) {
+            val a = LevelConfig.getConfig(l)
+            val b = LevelConfig.getConfig(l + 1)
+            if (b.targetPercentage == a.targetPercentage) targetHeldSomewhere = true
+            if (b.timeLimitSeconds == a.timeLimitSeconds) timeHeldSomewhere = true
+        }
+        assertTrue("capture target should hold steady on some level-ups", targetHeldSomewhere)
+        assertTrue("time limit should hold steady on some level-ups", timeHeldSomewhere)
+    }
+
+    @Test
+    fun `mid and late game capture targets stay approachable`() {
+        // Level 12 used to demand ~86%; the eased curve keeps it around 72-75%.
+        assertTrue(
+            "L12 target too steep: ${LevelConfig.getConfig(12).targetPercentage}",
+            LevelConfig.getConfig(12).targetPercentage <= 75.0
+        )
+        assertTrue(
+            "final target should cap at 80%",
+            LevelConfig.getConfig(999).targetPercentage <= 80.0
+        )
+    }
+
+    @Test
+    fun `new enemy reveals are announced on the levels that introduce them`() {
+        assertEquals("Jumper", LevelConfig.newEnemyAt(3)?.type)
+        assertEquals("Eater", LevelConfig.newEnemyAt(4)?.type)
+        assertEquals("Hunter", LevelConfig.newEnemyAt(5)?.type)
+        assertEquals("Speeder", LevelConfig.newEnemyAt(7)?.type)
+        assertEquals("Spitter", LevelConfig.newEnemyAt(15)?.type)
+        // Quiet levels announce nothing
+        assertEquals(null, LevelConfig.newEnemyAt(6))
+        assertEquals(null, LevelConfig.newEnemyAt(12))
+    }
+
+    @Test
+    fun `every announced enemy actually spawns on its debut level`() {
+        for (level in listOf(3, 4, 5, 7, 15)) {
+            val intro = LevelConfig.newEnemyAt(level)!!
+            val engine = GameEngine(LevelConfig.getConfig(level))
+            assertTrue(
+                "L$level announces ${intro.type} but none spawned",
+                engine.enemies.any { it.type == intro.type }
+            )
         }
     }
 
@@ -467,7 +521,7 @@ class GameEngineTest {
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
             cfg.hunterCount + cfg.speederCount + cfg.eaterCount + cfg.spitterCount
         assertTrue(total <= 7)
-        assertTrue(cfg.enemySpeed <= 11.0)
+        assertTrue(cfg.enemySpeed <= 9.8)
     }
 
     @Test
