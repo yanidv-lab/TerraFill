@@ -24,8 +24,8 @@ sealed class Screen(val route: String) {
             "level_complete/$levelNumber/$score/$timeRemaining/$stars/$earned"
     }
 
-    object GameOver : Screen("game_over/{levelNumber}/{score}") {
-        fun createRoute(levelNumber: Int, score: Int) = 
-            "game_over/$levelNumber/$score"
+    object GameOver : Screen("game_over/{levelNumber}/{score}/{captured}/{target}") {
+        fun createRoute(levelNumber: Int, score: Int, captured: Int, target: Int) =
+            "game_over/$levelNumber/$score/$captured/$target"
     }
 }

@@ -59,6 +59,7 @@ import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
 import com.example.ui.skins.CaterpillarSkin
+import com.example.ui.skins.SkinEffect
 import com.example.ui.theme.*
 import kotlin.math.abs
 import kotlin.math.cos
@@ -147,6 +148,126 @@ private fun DrawScope.drawSprite(
             filterQuality = FilterQuality.High,
             colorFilter = colorFilter
         )
+    }
+}
+
+/**
+ * Draws a premium skin's flourish over the hero sprite, inside the sprite's own
+ * rotated/mirrored space so accessories ride along with the body. [longSide] is the
+ * rendered sprite length; the artwork's head sits toward its leading edge.
+ */
+private fun DrawScope.drawSkinEffect(
+    effect: SkinEffect,
+    accent: Color,
+    center: Offset,
+    longSide: Float,
+    rotationDeg: Float,
+    flipX: Boolean,
+    now: Long
+) {
+    if (effect == SkinEffect.NONE) return
+    val bodyH = longSide / 2f          // artwork is roughly 2:1
+
+    when (effect) {
+        SkinEffect.GLOW -> {
+            // Halo sits in world space (no rotation needed) and breathes.
+            val pulse = 0.75f + 0.25f * sin(now / 260.0).toFloat()
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(accent.copy(alpha = 0.45f * pulse), Color.Transparent),
+                    center = center,
+                    radius = longSide * 0.75f
+                ),
+                radius = longSide * 0.75f,
+                center = center
+            )
+        }
+        SkinEffect.SPARKLE -> {
+            // Four-point twinkles orbiting the body at different phases.
+            for (k in 0 until 3) {
+                val phase = now / 900.0 + k * 2.1
+                val life = ((phase % 1.0)).toFloat()
+                val ang = (k * 2.4 + phase * 0.7)
+                val dist = longSide * (0.22f + 0.20f * k)
+                val p = center + Offset(cos(ang).toFloat() * dist, sin(ang).toFloat() * dist * 0.5f)
+                val a = (1f - life) * 0.9f
+                val r = longSide * 0.055f * (0.5f + life)
+                drawLine(Color.White.copy(alpha = a), p - Offset(r, 0f), p + Offset(r, 0f), longSide * 0.012f, cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = a), p - Offset(0f, r), p + Offset(0f, r), longSide * 0.012f, cap = StrokeCap.Round)
+            }
+        }
+        SkinEffect.EMBER -> {
+            // Embers drifting upward off the body.
+            for (k in 0 until 4) {
+                val phase = ((now / 700.0) + k * 0.27) % 1.0
+                val rise = phase.toFloat()
+                val sway = sin(now / 300.0 + k * 1.9).toFloat() * longSide * 0.06f
+                val p = center + Offset(
+                    (k - 1.5f) * longSide * 0.14f + sway,
+                    -rise * longSide * 0.55f
+                )
+                drawCircle(
+                    color = lerpColor(accent, Color(0xFFFFF176), rise),
+                    radius = longSide * 0.035f * (1f - rise * 0.6f),
+                    center = p,
+                    alpha = (1f - rise) * 0.9f
+                )
+            }
+        }
+        else -> {
+            // Accessories that must follow the body's orientation.
+            withTransform({
+                rotate(rotationDeg, center)
+                scale(if (flipX) -1f else 1f, 1f, center)
+            }) {
+                when (effect) {
+                    SkinEffect.SUNGLASSES -> {
+                        // Art faces LEFT: the head is toward the negative-x end.
+                        val headX = center.x - longSide * 0.30f
+                        val eyeY = center.y - bodyH * 0.18f
+                        val lensR = longSide * 0.058f
+                        val gap = lensR * 1.85f
+                        val left = Offset(headX - gap * 0.5f, eyeY)
+                        val right = Offset(headX + gap * 0.5f, eyeY)
+                        // Bridge + arm
+                        drawLine(Color(0xFF15151A), left, right, lensR * 0.42f, cap = StrokeCap.Round)
+                        drawLine(
+                            Color(0xFF15151A), right,
+                            Offset(right.x + lensR * 1.5f, eyeY - lensR * 0.25f),
+                            lensR * 0.3f, cap = StrokeCap.Round
+                        )
+                        for (lens in listOf(left, right)) {
+                            drawCircle(Color(0xFF101014), lensR, lens)
+                            drawCircle(Color(0xFF3A3A45), lensR, lens, style = Stroke(width = lensR * 0.22f))
+                            // Glint
+                            drawCircle(
+                                Color.White.copy(alpha = 0.75f),
+                                lensR * 0.26f,
+                                lens + Offset(-lensR * 0.32f, -lensR * 0.34f)
+                            )
+                        }
+                    }
+                    SkinEffect.GLOSS -> {
+                        // A specular streak sweeping along the body.
+                        val sweep = ((now / 1400.0) % 1.0).toFloat()
+                        val x = center.x - longSide * 0.42f + sweep * longSide * 0.84f
+                        val h = bodyH * 0.34f
+                        drawLine(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.55f), Color.Transparent),
+                                startY = center.y - h,
+                                endY = center.y + h
+                            ),
+                            start = Offset(x, center.y - h),
+                            end = Offset(x, center.y + h),
+                            strokeWidth = longSide * 0.05f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 }
 
@@ -956,8 +1077,10 @@ fun Playfield(
     // reused. Each may be null if the asset is corrupt - draw sites fall back to a
     // simple vector creature so the game keeps running no matter what.
     val caterpillarSprite = rememberSafeImage(R.drawable.sprite_caterpillar)
-    // Equipped cosmetic skin: recolours the hero art without flattening its shading.
-    val skinFilter = remember(state.skinId) { CaterpillarSkin.byId(state.skinId).colorFilter }
+    // Equipped cosmetic skin: recolours the hero art (without flattening its
+    // shading), tints the trail it leaves, and may add a flourish over the body.
+    val skin = remember(state.skinId) { CaterpillarSkin.byId(state.skinId) }
+    val skinFilter = remember(skin) { skin.colorFilter }
     val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
     val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
@@ -1174,8 +1297,8 @@ fun Playfield(
                     val stroke = { width: Float ->
                         Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
                     }
-                    drawPath(trailPath, NeonMagenta, alpha = 0.25f, style = stroke(cellMin * 0.9f))
-                    drawPath(trailPath, NeonMagenta, alpha = 0.9f, style = stroke(cellMin * 0.45f))
+                    drawPath(trailPath, skin.trailColor, alpha = 0.25f, style = stroke(cellMin * 0.9f))
+                    drawPath(trailPath, skin.trailColor, alpha = 0.9f, style = stroke(cellMin * 0.45f))
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
                 }
 
@@ -1414,6 +1537,15 @@ fun Playfield(
                             colorFilter = skinFilter,
                             scaleX = stretch,
                             scaleY = 1f - (stretch - 1f) * 0.7f
+                        )
+                        drawSkinEffect(
+                            effect = skin.effect,
+                            accent = skin.trailColor,
+                            center = headCenter,
+                            longSide = cellMin * PLAYER_SPRITE_CELLS,
+                            rotationDeg = rotationDeg + waddleDeg,
+                            flipX = flipX,
+                            now = now
                         )
                     } else {
                         // Asset failed to decode: draw a simple caterpillar so gameplay continues

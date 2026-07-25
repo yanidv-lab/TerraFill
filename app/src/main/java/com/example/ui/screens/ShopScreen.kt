@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.skins.CaterpillarSkin
+import com.example.ui.skins.SkinEffect
 import com.example.ui.theme.*
 
 /**
@@ -174,6 +175,28 @@ private fun SkinCard(
             fontFamily = FontFamily.Monospace,
             letterSpacing = 1.sp
         )
+
+        // Special skins advertise their flourish
+        if (skin.effect != SkinEffect.NONE) {
+            Text(
+                text = "✦ ${skin.effect.name}",
+                color = skin.swatch,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp
+            )
+        }
+        if (skin.blurb.isNotEmpty()) {
+            Text(
+                text = skin.blurb,
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
 
         when {
             equipped -> Row(verticalAlignment = Alignment.CenterVertically) {

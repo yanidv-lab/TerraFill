@@ -186,6 +186,9 @@ class GameEngine(
         /** Web projectile tuning. */
         const val WEB_RADIUS = 0.34             // collision radius of a web glob (cells)
         const val WEB_LIFE = 4.0                // seconds before a web dissipates
+
+        /** 4-way steps used when searching for a free cell. */
+        val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
     }
 
     init {
@@ -756,8 +759,51 @@ class GameEngine(
         pathHistory.addFirst(Pair(playerX, playerY))
         activeWebs.clear()
         webs = emptyList()
+        // Enemies were placed for a fresh board; on a restored one their spawn may
+        // now sit inside reclaimed land, where they would be walled in forever.
+        relocateTrappedEnemies()
         gridVersion++
         recalculateCapturedPercentage()
+    }
+
+    /**
+     * Moves any enemy that is standing inside CAPTURED territory out to the nearest
+     * open cell. An enemy embedded in claimed land is blocked on every side, so it
+     * bounces on the spot and never moves again - a soft-lock that can only arise
+     * when the board changes underneath the enemies (i.e. restoring a saved run).
+     */
+    private fun relocateTrappedEnemies() {
+        for (enemy in enemies) {
+            val ex = floor(enemy.x).toInt().coerceIn(0, width - 1)
+            val ey = floor(enemy.y).toInt().coerceIn(0, height - 1)
+            if (grid[ex][ey] != GridCellState.CAPTURED) continue
+
+            val spot = findNearestOpenCell(ex, ey) ?: continue
+            enemy.x = spot.first.toDouble()
+            enemy.y = spot.second.toDouble()
+        }
+    }
+
+    /** Breadth-first search for the closest non-CAPTURED cell, or null if none exists. */
+    private fun findNearestOpenCell(startX: Int, startY: Int): Pair<Int, Int>? {
+        val visited = Array(width) { BooleanArray(height) }
+        val queue = ArrayDeque<Pair<Int, Int>>()
+        queue.addLast(Pair(startX, startY))
+        visited[startX][startY] = true
+
+        while (queue.isNotEmpty()) {
+            val (cx, cy) = queue.removeFirst()
+            if (grid[cx][cy] != GridCellState.CAPTURED) return Pair(cx, cy)
+            for ((dx, dy) in NEIGHBOURS) {
+                val nx = cx + dx
+                val ny = cy + dy
+                if (nx in 0 until width && ny in 0 until height && !visited[nx][ny]) {
+                    visited[nx][ny] = true
+                    queue.addLast(Pair(nx, ny))
+                }
+            }
+        }
+        return null
     }
 
     /**
