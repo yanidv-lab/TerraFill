@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -32,6 +33,8 @@ fun GameOverScreen(
     onRetry: () -> Unit,
     onMainMenu: () -> Unit,
     bestScore: Int = 0,
+    capturedPercent: Int = 0,
+    targetPercent: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val bgGradient = Brush.verticalGradient(
@@ -158,6 +161,63 @@ fun GameOverScreen(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 20.sp
                         )
+                    }
+
+                    // How close the run came: claimed vs needed, with a bar. Losing
+                    // is far less annoying when you can see you were nearly there.
+                    if (targetPercent > 0) {
+                        HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "TERRITORY CLAIMED:",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "$capturedPercent% / $targetPercent%",
+                                    color = NeonGreen,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp
+                                )
+                            }
+                            // Progress toward the level's goal
+                            val progress = (capturedPercent.toFloat() / targetPercent).coerceIn(0f, 1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(10.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(Color.Black.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(progress)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(NeonCyan, NeonGreen)
+                                            )
+                                        )
+                                )
+                            }
+                            Text(
+                                text = when {
+                                    progress >= 0.9f -> "So close! One more push."
+                                    progress >= 0.6f -> "More than halfway there."
+                                    else -> "Claim bigger areas in one sweep."
+                                },
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
 
                     if (bestScore > 0) {

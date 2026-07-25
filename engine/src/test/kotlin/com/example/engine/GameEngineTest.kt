@@ -829,6 +829,51 @@ class GameEngineTest {
         assertTrue(LevelConfig.getConfig(15).spitterCount >= 1)
     }
 
+    @Test
+    fun `resuming frees enemies that would be walled inside claimed land`() {
+        // A board where everything except one pocket has been claimed.
+        val w = 12
+        val h = 12
+        val sb = StringBuilder()
+        for (x in 0 until w) {
+            for (y in 0 until h) {
+                val open = (x == 6 && y == 6)
+                sb.append(if (open) '0' else '1')
+            }
+        }
+        val engine = GameEngine(
+            LevelConfig(
+                levelNumber = 1, gridWidth = w, gridHeight = h,
+                bouncerCount = 1, crawlerCount = 0, jumperCount = 0,
+                hunterCount = 0, speederCount = 0,
+                enemySpeed = 4.0, enemyAggression = 0.0,
+                targetPercentage = 99.0, timeLimitSeconds = 300
+            )
+        )
+        engine.restoreSnapshot(sb.toString(), savedScore = 10, savedLives = 3, savedTime = 100.0)
+
+        val enemy = engine.enemies.first()
+        val ex = kotlin.math.floor(enemy.x).toInt()
+        val ey = kotlin.math.floor(enemy.y).toInt()
+        assertEquals(
+            "a restored enemy must never be left inside claimed land",
+            GridCellState.EMPTY, engine.grid[ex][ey]
+        )
+    }
+
+    @Test
+    fun `restored enemies that are already in the open are left where they are`() {
+        val engine = newEngine()
+        engine.enemies.clear()
+        engine.enemies.add(Bouncer(1, 4.0, 4.0, 3.0, 3.0))
+        val mask = engine.exportCapturedMask()   // only the border is claimed
+
+        engine.restoreSnapshot(mask, savedScore = 0, savedLives = 3, savedTime = 50.0)
+
+        assertEquals(4.0, engine.enemies.first().x, 1e-9)
+        assertEquals(4.0, engine.enemies.first().y, 1e-9)
+    }
+
     // ---------------------------------------------------------------- star currency
 
     @Test

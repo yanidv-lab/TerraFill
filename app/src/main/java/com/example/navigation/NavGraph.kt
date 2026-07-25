@@ -154,7 +154,9 @@ fun NavGraph(
                         navController.navigate(
                             Screen.GameOver.createRoute(
                                 levelNumber = gameState.levelNumber,
-                                score = gameState.score
+                                score = gameState.score,
+                                captured = gameState.capturedPercentage.toInt(),
+                                target = gameState.targetPercentage.toInt()
                             )
                         ) {
                             popUpTo(Screen.MainMenu.route) // Clean game from backstack
@@ -235,11 +237,15 @@ fun NavGraph(
             route = Screen.GameOver.route,
             arguments = listOf(
                 navArgument("levelNumber") { type = NavType.IntType },
-                navArgument("score") { type = NavType.IntType }
+                navArgument("score") { type = NavType.IntType },
+                navArgument("captured") { type = NavType.IntType },
+                navArgument("target") { type = NavType.IntType }
             )
         ) { backStackEntry ->
             val levelNumber = backStackEntry.arguments?.getInt("levelNumber") ?: 1
             val score = backStackEntry.arguments?.getInt("score") ?: 0
+            val capturedPct = backStackEntry.arguments?.getInt("captured") ?: 0
+            val targetPct = backStackEntry.arguments?.getInt("target") ?: 0
 
             val bestScores by viewModel.highScores.collectAsStateWithLifecycle()
 
@@ -247,6 +253,8 @@ fun NavGraph(
                 levelNumber = levelNumber,
                 score = score,
                 bestScore = bestScores[levelNumber] ?: 0,
+                capturedPercent = capturedPct,
+                targetPercent = targetPct,
                 // Losing must never erase the player's records or unlocks - it just
                 // offers an instant retry of the same level. Frustration-free.
                 onRetry = {
