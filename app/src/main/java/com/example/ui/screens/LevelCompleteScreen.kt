@@ -46,6 +46,7 @@ fun LevelCompleteScreen(
     score: Int,
     timeRemaining: Int,
     stars: Int = 3,
+    starsEarned: Int = 0,
     isNewRecord: Boolean = false,
     onNextLevel: () -> Unit,
     onMainMenu: () -> Unit,
@@ -232,6 +233,38 @@ fun LevelCompleteScreen(
                                 text = String.format("%06d", score),
                                 color = NeonCyan,
                                 fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+
+                    // Star payout: the currency banked for this run, which scales with
+                    // the level and with how much of the board was claimed.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "STARS EARNED:",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = NeonYellow,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = " +$starsEarned",
+                                color = NeonYellow,
+                                fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 20.sp
                             )

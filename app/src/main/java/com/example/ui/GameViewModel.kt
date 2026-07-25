@@ -4,8 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.GamePreferences
+import com.example.data.SavedGame
 import com.example.engine.*
+import com.example.ui.skins.CaterpillarSkin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,8 +60,12 @@ data class GameUiState(
     val slowRemaining: Double = 0.0,
     val powerUpCollectedCount: Int = 0,
     val stars: Int = 0,
+    /** Star currency paid out by this completion (0 until the level is finished). */
+    val starsEarned: Int = 0,
     /** In-flight web projectiles fired by Spitter enemies. */
-    val webShots: List<WebShot> = emptyList()
+    val webShots: List<WebShot> = emptyList(),
+    /** Id of the caterpillar skin the player has equipped. */
+    val skinId: String = "classic"
 )
 
 /**
@@ -78,6 +85,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lastCrashCount = 0
     private var lastPowerUpCount = 0
     private var lastStatus = GameStateStatus.RUNNING
+    // Clock-warning edges, so each threshold sounds exactly once per level
+    private var warnedAt30 = false
+    private var warnedAt10 = false
 
     // Grid snapshot cache: only rebuilt when the engine's grid actually changes,
     // so most frames (which only move enemies) allocate nothing for the grid.
@@ -100,6 +110,75 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _levelStars = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val levelStars: StateFlow<Map<Int, Int>> = _levelStars.asStateFlow()
 
+    // --- Cosmetic skins bought with stars ---
+    val ownedSkins: StateFlow<Set<String>> = preferences.ownedSkins
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val selectedSkin: StateFlow<String> = preferences.selectedSkin
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CaterpillarSkin.DEFAULT.id)
+
+    /** Every star banked from level completions, including replays. */
+    val totalStarsEarned: StateFlow<Int> = preferences.totalStarsEarned
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Stars still available to spend: everything earned, minus what skins cost. */
+    val availableStars: StateFlow<Int> = combine(totalStarsEarned, ownedSkins) { earned, owned ->
+        val spent = CaterpillarSkin.ALL.filter { it.id in owned }.sumOf { it.cost }
+        (earned - spent).coerceAtLeast(0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Buys a skin when the player can afford it, and equips it. */
+    fun buySkin(skin: CaterpillarSkin) {
+        if (skin.id in ownedSkins.value || skin.id == CaterpillarSkin.DEFAULT.id) {
+            equipSkin(skin)
+            return
+        }
+        if (availableStars.value < skin.cost) return
+        viewModelScope.launch { preferences.purchaseSkin(skin.id) }
+    }
+
+    /** Equips an owned skin (the default skin is always owned). */
+    fun equipSkin(skin: CaterpillarSkin) {
+        if (skin.id != CaterpillarSkin.DEFAULT.id && skin.id !in ownedSkins.value) return
+        viewModelScope.launch { preferences.selectSkin(skin.id) }
+    }
+
+    // --- Mid-level save so an interrupted run can be resumed ---
+    val savedGame: StateFlow<SavedGame?> = preferences.savedGame
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * Persists the current run. Called when the app goes to the background and after
+     * each capture, so an interruption (or the process being killed) never loses more
+     * than the last few seconds of play.
+     */
+    fun saveProgressSnapshot() {
+        val active = engine ?: return
+        if (active.status != GameStateStatus.RUNNING && active.status != GameStateStatus.PAUSED) return
+        val snapshot = SavedGame(
+            level = active.levelConfig.levelNumber,
+            score = active.score,
+            lives = active.lives,
+            timeRemaining = active.timeRemainingSeconds,
+            gridWidth = active.width,
+            gridHeight = active.height,
+            capturedMask = active.exportCapturedMask()
+        )
+        viewModelScope.launch { preferences.saveGame(snapshot) }
+    }
+
+    /**
+     * Arms the saved run. Navigation to the game screen calls [startLevel], which
+     * applies the snapshot - going through a pending flag (rather than restoring
+     * here) means the fresh level start cannot overwrite the restored board.
+     */
+    fun resumeSavedGame() {
+        pendingResume = savedGame.value
+    }
+
+    private fun clearSavedGame() {
+        viewModelScope.launch { preferences.clearSavedGame() }
+    }
+
     private var engine: GameEngine? = null
 
     // Width/height ratio of the on-screen play area, reported by the UI once the
@@ -107,11 +186,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // the screen with square cells. 0.62 is a typical portrait-phone starting guess.
     private var fieldAspect: Double = 0.62
 
+    // A saved run waiting to be applied by the next startLevel() call
+    private var pendingResume: SavedGame? = null
+    // True when the current engine was restored from a save, so the aspect-driven
+    // grid regeneration must not throw that restored board away.
+    private var restoredCurrentLevel = false
+
     init {
         // Observe unlocked level to update UI state accordingly
         viewModelScope.launch {
             highestUnlockedLevel.collect { level ->
                 _uiState.value = _uiState.value.copy(highestUnlockedLevel = level)
+            }
+        }
+
+        // Keep the equipped skin mirrored into the game state so the playfield can
+        // tint the caterpillar without reaching into preferences mid-frame.
+        viewModelScope.launch {
+            selectedSkin.collect { id ->
+                _uiState.value = _uiState.value.copy(skinId = id)
             }
         }
 
@@ -141,9 +234,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastCrashCount = 0
         lastPowerUpCount = 0
         lastStatus = GameStateStatus.RUNNING
+        warnedAt30 = false
+        warnedAt10 = false
         cachedGridVersion = -1
         sound.startMusic()
         viewModelScope.launch { preferences.saveLastPlayedLevel(config.levelNumber) }
+
+        // Apply a pending resume for this level, if one is armed. A mask from a
+        // differently shaped board is rejected inside restoreSnapshot, in which case
+        // the level simply starts fresh.
+        val resume = pendingResume?.takeIf { it.level == config.levelNumber }
+        pendingResume = null
+        restoredCurrentLevel = false
+        if (resume != null) {
+            newEngine.restoreSnapshot(
+                capturedMask = resume.capturedMask,
+                savedScore = resume.score,
+                savedLives = resume.lives,
+                savedTime = resume.timeRemaining
+            )
+            restoredCurrentLevel = true
+            viewModelScope.launch { preferences.clearSavedGame() }
+        }
+
         updateUiStateFromEngine(newEngine)
     }
 
@@ -163,7 +276,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val justStarted = active.score == 0 &&
             !active.isDrawing &&
             active.timeRemainingSeconds > active.levelConfig.timeLimitSeconds - 3.0
-        if (changed && justStarted && active.status == GameStateStatus.RUNNING) {
+        if (changed && justStarted && !restoredCurrentLevel && active.status == GameStateStatus.RUNNING) {
             startLevel(active.levelConfig.levelNumber)
         }
     }
@@ -193,6 +306,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (activeEngine.captureCount > lastCaptureCount) {
             lastCaptureCount = activeEngine.captureCount
             sound.capture()
+            // Checkpoint the run: an interruption now costs at most the progress
+            // made since the last claimed area.
+            saveProgressSnapshot()
         }
         if (activeEngine.crashCount > lastCrashCount) {
             lastCrashCount = activeEngine.crashCount
@@ -202,10 +318,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             lastPowerUpCount = activeEngine.powerUpCollectedCount
             sound.powerUp()
         }
+
+        // Clock warnings: one beep pair at 30s left, a sharper triple at 10s.
+        val timeLeft = activeEngine.timeRemainingSeconds
+        if (!warnedAt30 && timeLeft <= 30.0 && timeLeft > 10.0) {
+            warnedAt30 = true
+            sound.timeWarning(urgent = false)
+        }
+        if (!warnedAt10 && timeLeft <= 10.0) {
+            warnedAt10 = true
+            sound.timeWarning(urgent = true)
+        }
         if (activeEngine.status != lastStatus) {
             when (activeEngine.status) {
-                GameStateStatus.LEVEL_COMPLETE -> { sound.levelComplete(); sound.pauseMusic() }
-                GameStateStatus.GAME_OVER -> { sound.gameOver(); sound.stopMusic() }
+                // The run is over either way, so the mid-level save is obsolete.
+                GameStateStatus.LEVEL_COMPLETE -> {
+                    sound.levelComplete(); sound.pauseMusic(); clearSavedGame()
+                }
+                GameStateStatus.GAME_OVER -> {
+                    sound.gameOver(); sound.stopMusic(); clearSavedGame()
+                }
                 else -> {}
             }
             lastStatus = activeEngine.status
@@ -231,6 +363,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     score = activeEngine.score,
                     stars = activeEngine.stars
                 )
+                // Star currency accrues on EVERY completion, so replaying a level is a
+                // legitimate way to grind toward an expensive skin.
+                preferences.addStars(activeEngine.starsEarned)
             }
         }
 
@@ -313,7 +448,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Map enemies list (creates a new list so recomposition detects changes)
-        val enemiesCopy = activeEngine.enemies.map { it.copyWith() }
+        // Carry the smoothed rendering facing onto the snapshot, otherwise the UI
+        // would fall back to the raw velocity sign and flicker when enemies are boxed in.
+        val enemiesCopy = activeEngine.enemies.map { source ->
+            source.copyWith().also { it.facing = source.facing }
+        }
 
         _uiState.value = _uiState.value.copy(
             levelNumber = activeEngine.levelConfig.levelNumber,
@@ -345,6 +484,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             slowRemaining = activeEngine.slowRemaining,
             powerUpCollectedCount = activeEngine.powerUpCollectedCount,
             stars = activeEngine.stars,
+            starsEarned = activeEngine.starsEarned,
             webShots = activeEngine.webs
         )
     }

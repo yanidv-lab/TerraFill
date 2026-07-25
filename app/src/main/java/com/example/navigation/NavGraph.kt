@@ -17,6 +17,7 @@ import com.example.ui.screens.LevelSelectScreen
 import com.example.ui.screens.MainMenuScreen
 import com.example.ui.screens.OptionsScreen
 import com.example.ui.screens.ScoresScreen
+import com.example.ui.screens.ShopScreen
 
 /**
  * Orchestrates the screens and type-safe arguments inside the Jetpack Compose navigation structure.
@@ -39,6 +40,7 @@ fun NavGraph(
         // 1. MAIN MENU SCREEN
         composable(route = Screen.MainMenu.route) {
             val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
+            val savedRun by viewModel.savedGame.collectAsStateWithLifecycle()
 
             // Menu soundtrack starts here and keeps playing through the sub-screens;
             // entering a level switches to the game track automatically.
@@ -57,7 +59,29 @@ fun NavGraph(
                 },
                 onPlay = { navController.navigate(Screen.LevelSelect.route) },
                 onOptions = { navController.navigate(Screen.Options.route) },
-                onScores = { navController.navigate(Screen.Scores.route) }
+                onScores = { navController.navigate(Screen.Scores.route) },
+                onShop = { navController.navigate(Screen.Shop.route) },
+                resumeLevel = savedRun?.level,
+                onResume = {
+                    val level = savedRun?.level ?: return@MainMenuScreen
+                    viewModel.resumeSavedGame()
+                    navController.navigate(Screen.Game.createRoute(level))
+                }
+            )
+        }
+
+        // 1e. SKINS SHOP
+        composable(route = Screen.Shop.route) {
+            val stars by viewModel.availableStars.collectAsStateWithLifecycle()
+            val owned by viewModel.ownedSkins.collectAsStateWithLifecycle()
+            val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
+            ShopScreen(
+                availableStars = stars,
+                ownedSkins = owned,
+                selectedSkin = equipped,
+                onBuy = { viewModel.buySkin(it) },
+                onEquip = { viewModel.equipSkin(it) },
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -119,7 +143,8 @@ fun NavGraph(
                                 levelNumber = gameState.levelNumber,
                                 score = gameState.score,
                                 timeRemaining = gameState.timeRemainingSeconds.toInt(),
-                                stars = gameState.stars
+                                stars = gameState.stars,
+                                earned = gameState.starsEarned
                             )
                         ) {
                             popUpTo(Screen.MainMenu.route) // Clean game from backstack
@@ -171,13 +196,15 @@ fun NavGraph(
                 navArgument("levelNumber") { type = NavType.IntType },
                 navArgument("score") { type = NavType.IntType },
                 navArgument("timeRemaining") { type = NavType.IntType },
-                navArgument("stars") { type = NavType.IntType }
+                navArgument("stars") { type = NavType.IntType },
+                navArgument("earned") { type = NavType.IntType }
             )
         ) { backStackEntry ->
             val levelNumber = backStackEntry.arguments?.getInt("levelNumber") ?: 1
             val score = backStackEntry.arguments?.getInt("score") ?: 0
             val timeRemaining = backStackEntry.arguments?.getInt("timeRemaining") ?: 0
             val stars = backStackEntry.arguments?.getInt("stars") ?: 0
+            val earnedStars = backStackEntry.arguments?.getInt("earned") ?: 0
 
             val bestScores by viewModel.highScores.collectAsStateWithLifecycle()
 
@@ -186,6 +213,7 @@ fun NavGraph(
                 score = score,
                 timeRemaining = timeRemaining,
                 stars = stars,
+                starsEarned = earnedStars,
                 // The stored best already includes this run, so matching it means
                 // this run set (or tied) the record.
                 isNewRecord = score > 0 && score >= (bestScores[levelNumber] ?: 0),

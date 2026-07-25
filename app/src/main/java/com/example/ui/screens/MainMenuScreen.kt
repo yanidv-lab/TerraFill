@@ -17,7 +17,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -60,6 +62,9 @@ fun MainMenuScreen(
     onPlay: () -> Unit = {},
     onOptions: () -> Unit = {},
     onScores: () -> Unit = {},
+    onShop: () -> Unit = {},
+    resumeLevel: Int? = null,
+    onResume: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     JungleBackdrop(modifier = modifier) {
@@ -77,10 +82,21 @@ fun MainMenuScreen(
             TitleHeader()
             JungleHero()
 
+            // An interrupted run takes top billing so it is never lost by accident.
+            if (resumeLevel != null) {
+                MenuActionButton(
+                    label = "RESUME • LEVEL $resumeLevel",
+                    icon = Icons.Default.Replay,
+                    filled = true,
+                    accent = NeonYellow,
+                    onClick = onResume,
+                    modifier = Modifier.testTag("resume_button")
+                )
+            }
             MenuActionButton(
                 label = "PLAY",
                 icon = Icons.Default.PlayArrow,
-                filled = true,
+                filled = resumeLevel == null,
                 onClick = onPlay,
                 modifier = Modifier.testTag("play_button")
             )
@@ -89,6 +105,13 @@ fun MainMenuScreen(
                 icon = Icons.Default.Settings,
                 onClick = onOptions,
                 modifier = Modifier.testTag("options_button")
+            )
+            MenuActionButton(
+                label = "SKINS",
+                icon = Icons.Default.Palette,
+                accent = Color(0xFFB14CFF),
+                onClick = onShop,
+                modifier = Modifier.testTag("shop_button")
             )
             MenuActionButton(
                 label = "SCORE",

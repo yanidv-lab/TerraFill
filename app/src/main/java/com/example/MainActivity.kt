@@ -76,6 +76,9 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         gameViewModel?.pauseAudio()
+        // Persist the run here: onPause is the last callback guaranteed before the
+        // system may kill the process, so an interrupted game can always be resumed.
+        gameViewModel?.saveProgressSnapshot()
     }
 
     override fun onResume() {

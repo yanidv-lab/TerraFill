@@ -43,6 +43,16 @@ class GameEngineTest {
     /** A stationary enemy parked at the given cell. */
     private fun enemyAt(x: Double, y: Double) = Bouncer(id = 99, x = x, y = y, vx = 0.0, vy = 0.0)
 
+    /**
+     * Steps the player one cell down into open territory (drawing a trail), where
+     * roaming enemies are lethal. Standing on the claimed border is safe ground, so
+     * collision tests must leave it first.
+     */
+    private fun GameEngine.stepIntoOpenGround() {
+        setDirection(Direction.DOWN)
+        step()
+    }
+
     // ---------------------------------------------------------------- initial state
 
     @Test
@@ -217,7 +227,8 @@ class GameEngineTest {
     @Test
     fun `enemy touching the player cursor crashes the player`() {
         val engine = newEngine()
-        engine.enemies.add(enemyAt(5.0, 0.0)) // player spawn cell
+        engine.stepIntoOpenGround()               // out in the open at (5,1)
+        engine.enemies.add(enemyAt(5.0, 1.0))     // parked on the player
         engine.tick(0.01)
 
         assertEquals(2, engine.lives)
@@ -227,7 +238,8 @@ class GameEngineTest {
     @Test
     fun `game is over when the last life is lost`() {
         val engine = newEngine(initialLives = 1)
-        engine.enemies.add(enemyAt(5.0, 0.0))
+        engine.stepIntoOpenGround()
+        engine.enemies.add(enemyAt(5.0, 1.0))
         engine.tick(0.01)
 
         assertEquals(0, engine.lives)
@@ -339,7 +351,8 @@ class GameEngineTest {
     fun `crash count increments on every crash`() {
         val engine = newEngine()
         assertEquals(0, engine.crashCount)
-        engine.enemies.add(enemyAt(5.0, 0.0))
+        engine.stepIntoOpenGround()
+        engine.enemies.add(enemyAt(5.0, 1.0))
         engine.tick(0.01)
         assertEquals(1, engine.crashCount)
     }
@@ -349,8 +362,9 @@ class GameEngineTest {
     @Test
     fun `enemy overlapping the player from a neighboring cell collides`() {
         val engine = newEngine()
-        // Enemy center at (6.1, 0.5); player center at (5.5, 0.5): gap 0.6 < 0.4 + 0.4
-        engine.enemies.add(enemyAt(5.6, 0.0))
+        engine.stepIntoOpenGround()
+        // Enemy center at (6.1, 1.5); player center at (5.5, 1.5): gap 0.6 < 0.4 + 0.4
+        engine.enemies.add(enemyAt(5.6, 1.0))
         engine.tick(0.01)
         assertEquals(GameStateStatus.CRASH_RESET, engine.status)
     }
@@ -358,8 +372,9 @@ class GameEngineTest {
     @Test
     fun `enemy in a neighboring cell without circle overlap does not collide`() {
         val engine = newEngine()
-        // Enemy center at (6.5, 0.5); player center at (5.5, 0.5): gap 1.0 > 0.8
-        engine.enemies.add(enemyAt(6.0, 0.0))
+        engine.stepIntoOpenGround()
+        // Enemy center at (6.5, 1.5); player center at (5.5, 1.5): gap 1.0 > 0.8
+        engine.enemies.add(enemyAt(6.0, 1.0))
         engine.tick(0.01)
         assertEquals(GameStateStatus.RUNNING, engine.status)
         assertEquals(3, engine.lives)
@@ -451,13 +466,67 @@ class GameEngineTest {
     }
 
     @Test
-    fun `every level up is a felt difficulty step`() {
+    fun `every level up is a felt difficulty step, and nothing ever gets easier`() {
         for (l in 1 until 15) {
             val a = LevelConfig.getConfig(l)
             val b = LevelConfig.getConfig(l + 1)
+            // Speed is the smooth per-level pressure; the rest must never regress.
             assertTrue("speed step L$l", b.enemySpeed > a.enemySpeed + 0.3)
-            assertTrue("target step L$l", b.targetPercentage >= a.targetPercentage)
-            assertTrue("time step L$l", b.timeLimitSeconds <= a.timeLimitSeconds)
+            assertTrue("target never drops L$l", b.targetPercentage >= a.targetPercentage)
+            assertTrue("time never grows L$l", b.timeLimitSeconds <= a.timeLimitSeconds)
+        }
+    }
+
+    @Test
+    fun `difficulty is staggered - a level up does not raise every dimension at once`() {
+        // Across the campaign there must be levels where the target holds steady and
+        // levels where the clock holds steady, so pressure arrives one axis at a time.
+        var targetHeldSomewhere = false
+        var timeHeldSomewhere = false
+        for (l in 1 until 20) {
+            val a = LevelConfig.getConfig(l)
+            val b = LevelConfig.getConfig(l + 1)
+            if (b.targetPercentage == a.targetPercentage) targetHeldSomewhere = true
+            if (b.timeLimitSeconds == a.timeLimitSeconds) timeHeldSomewhere = true
+        }
+        assertTrue("capture target should hold steady on some level-ups", targetHeldSomewhere)
+        assertTrue("time limit should hold steady on some level-ups", timeHeldSomewhere)
+    }
+
+    @Test
+    fun `mid and late game capture targets stay approachable`() {
+        // Level 12 used to demand ~86%; the eased curve keeps it around 72-75%.
+        assertTrue(
+            "L12 target too steep: ${LevelConfig.getConfig(12).targetPercentage}",
+            LevelConfig.getConfig(12).targetPercentage <= 75.0
+        )
+        assertTrue(
+            "final target should cap at 80%",
+            LevelConfig.getConfig(999).targetPercentage <= 80.0
+        )
+    }
+
+    @Test
+    fun `new enemy reveals are announced on the levels that introduce them`() {
+        assertEquals("Jumper", LevelConfig.newEnemyAt(3)?.type)
+        assertEquals("Eater", LevelConfig.newEnemyAt(4)?.type)
+        assertEquals("Hunter", LevelConfig.newEnemyAt(5)?.type)
+        assertEquals("Speeder", LevelConfig.newEnemyAt(7)?.type)
+        assertEquals("Spitter", LevelConfig.newEnemyAt(15)?.type)
+        // Quiet levels announce nothing
+        assertEquals(null, LevelConfig.newEnemyAt(6))
+        assertEquals(null, LevelConfig.newEnemyAt(12))
+    }
+
+    @Test
+    fun `every announced enemy actually spawns on its debut level`() {
+        for (level in listOf(3, 4, 5, 7, 15)) {
+            val intro = LevelConfig.newEnemyAt(level)!!
+            val engine = GameEngine(LevelConfig.getConfig(level))
+            assertTrue(
+                "L$level announces ${intro.type} but none spawned",
+                engine.enemies.any { it.type == intro.type }
+            )
         }
     }
 
@@ -467,7 +536,7 @@ class GameEngineTest {
         val total = cfg.bouncerCount + cfg.crawlerCount + cfg.jumperCount +
             cfg.hunterCount + cfg.speederCount + cfg.eaterCount + cfg.spitterCount
         assertTrue(total <= 7)
-        assertTrue(cfg.enemySpeed <= 11.0)
+        assertTrue(cfg.enemySpeed <= 9.8)
     }
 
     @Test
@@ -758,6 +827,181 @@ class GameEngineTest {
         assertTrue(LevelConfig.getConfig(4).eaterCount >= 1)
         assertEquals(0, LevelConfig.getConfig(14).spitterCount)
         assertTrue(LevelConfig.getConfig(15).spitterCount >= 1)
+    }
+
+    // ---------------------------------------------------------------- star currency
+
+    @Test
+    fun `star pools grow with the level and jump at 10 and 15`() {
+        assertEquals(10, StarEconomy.poolForLevel(1))
+        assertEquals(20, StarEconomy.poolForLevel(2))
+        assertEquals(90, StarEconomy.poolForLevel(9))
+        // Non-linear step ups
+        assertTrue(
+            "L10 should jump well past the linear 100",
+            StarEconomy.poolForLevel(10) > StarEconomy.poolForLevel(9) + 20
+        )
+        assertTrue(
+            "L15 should jump again",
+            StarEconomy.poolForLevel(15) > StarEconomy.poolForLevel(14) + 20
+        )
+        // Monotonic all the way up
+        for (l in 1 until 20) {
+            assertTrue("pool must not shrink at L$l", StarEconomy.poolForLevel(l + 1) > StarEconomy.poolForLevel(l))
+        }
+    }
+
+    @Test
+    fun `stars paid out scale with how much of the board was claimed`() {
+        // 40% of level 1's pool of 10 = 4 stars
+        assertEquals(4, StarEconomy.award(level = 1, capturedPercentage = 40.0))
+        assertEquals(10, StarEconomy.award(level = 1, capturedPercentage = 100.0))
+        assertEquals(20, StarEconomy.award(level = 2, capturedPercentage = 100.0))
+        assertEquals(0, StarEconomy.award(level = 5, capturedPercentage = 0.0))
+        // A high level pays far better for the same effort
+        assertTrue(
+            StarEconomy.award(20, 70.0) > StarEconomy.award(2, 70.0) * 5
+        )
+    }
+
+    @Test
+    fun `finishing a level banks star currency proportional to the capture`() {
+        val engine = newEngine(targetPercentage = 50.0)
+        engine.enemies.add(enemyAt(7.0, 5.0))          // blocks the right half
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        assertEquals(GameStateStatus.LEVEL_COMPLETE, engine.status)
+        // 62.5% of level 1's pool of 10
+        assertEquals(StarEconomy.award(1, engine.capturedPercentage), engine.starsEarned)
+        assertTrue("a completed level must pay something", engine.starsEarned > 0)
+    }
+
+    @Test
+    fun `an unfinished level pays no star currency`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }     // still drawing, nothing closed
+        assertEquals(0, engine.starsEarned)
+    }
+
+    // ---------------------------------------------------------------- mid-level save/restore
+
+    @Test
+    fun `a mid-level snapshot round-trips the claimed board and stats`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }          // claim the whole interior
+        val mask = engine.exportCapturedMask()
+        val score = engine.score
+        val captured = engine.capturedPercentage
+
+        val resumed = newEngine()
+        resumed.restoreSnapshot(mask, savedScore = score, savedLives = 2, savedTime = 42.0)
+
+        assertEquals(score, resumed.score)
+        assertEquals(2, resumed.lives)
+        assertEquals(42.0, resumed.timeRemainingSeconds, 1e-9)
+        assertEquals(captured, resumed.capturedPercentage, 1e-9)
+        assertEquals(mask, resumed.exportCapturedMask())
+    }
+
+    @Test
+    fun `a resumed run starts safely on the border with no trail`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }          // mid-draw, out in the open
+        val mask = engine.exportCapturedMask()
+
+        val resumed = newEngine()
+        resumed.restoreSnapshot(mask, savedScore = 100, savedLives = 3, savedTime = 60.0)
+
+        assertFalse(resumed.isDrawing)
+        assertTrue(resumed.trail.isEmpty())
+        assertEquals(0, resumed.playerY)
+        assertEquals(GridCellState.CAPTURED, resumed.grid[resumed.playerX][resumed.playerY])
+        assertEquals(GameStateStatus.RUNNING, resumed.status)
+    }
+
+    @Test
+    fun `a snapshot from a different board size is ignored`() {
+        val engine = newEngine()
+        val before = engine.exportCapturedMask()
+        engine.restoreSnapshot("101010", savedScore = 999, savedLives = 1, savedTime = 5.0)
+
+        assertEquals("board must be untouched", before, engine.exportCapturedMask())
+        assertEquals("stats must be untouched", 0, engine.score)
+    }
+
+    // ---------------------------------------------------------------- movement stability
+
+    @Test
+    fun `an enemy sealed in a tiny pocket does not thrash its heading`() {
+        // A 1-cell pocket at (5,5): everything around it is claimed land.
+        val grid = Array(12) { x ->
+            Array(12) { y ->
+                if (x == 5 && y == 5) GridCellState.EMPTY else GridCellState.CAPTURED
+            }
+        }
+        val enemy = Bouncer(1, 5.4, 5.4, 9.0, 9.0)
+        var signFlips = 0
+        var previousSign = if (enemy.vx > 0) 1 else -1
+        repeat(60) {
+            enemy.update(grid, 1.0 / 60.0)
+            val sign = if (enemy.vx > 0) 1 else -1
+            if (sign != previousSign) signFlips++
+            previousSign = sign
+        }
+        // One reversal per axis per tick at most - not dozens of sub-step flips.
+        assertTrue("heading flipped $signFlips times in 60 ticks", signFlips <= 60)
+        // And it must stay inside its pocket rather than tunnelling out.
+        assertTrue("enemy escaped its pocket", enemy.x >= 5.0 && enemy.x < 6.0)
+    }
+
+    @Test
+    fun `rendered facing eases instead of snapping with every bounce`() {
+        val enemy = Bouncer(1, 5.0, 5.0, 4.0, 0.0)
+        enemy.facing = 1.0
+        enemy.vx = -4.0                      // instantaneous reversal
+        enemy.advanceFacing(1.0 / 60.0)      // a single frame
+        assertTrue("facing should ease, not snap to -1", enemy.facing > 0.5)
+        repeat(60) { enemy.advanceFacing(1.0 / 60.0) }
+        assertTrue("facing should settle after sustained travel", enemy.facing < -0.5)
+    }
+
+    // ---------------------------------------------------------------- safe ground
+
+    @Test
+    fun `player standing on claimed land is safe from roaming spiders`() {
+        val engine = newEngine()
+        // Player is on the captured top border at spawn, not drawing.
+        engine.enemies.add(enemyAt(engine.playerX.toDouble(), 1.0)) // right beneath them
+        engine.tick(0.05)
+
+        assertEquals("standing on claimed ground must not crash", 3, engine.lives)
+        assertEquals(GameStateStatus.RUNNING, engine.status)
+    }
+
+    @Test
+    fun `border-patrolling crawlers still threaten a player on claimed land`() {
+        val engine = newEngine()
+        engine.enemies.add(Crawler(50, engine.playerX.toDouble(), 0.2, 0.0, 1.0))
+        engine.tick(0.05)
+
+        assertEquals("a crawler on the border must still hit", 2, engine.lives)
+    }
+
+    @Test
+    fun `player drawing a trail is vulnerable again`() {
+        val engine = newEngine()
+        engine.setDirection(Direction.DOWN)
+        engine.step()   // now at (5,1) in open territory, drawing
+        assertTrue(engine.isDrawing)
+
+        engine.enemies.add(enemyAt(engine.playerX.toDouble(), engine.playerY.toDouble()))
+        engine.tick(0.05)
+
+        assertEquals("out in the open the spider must hit", 2, engine.lives)
     }
 
     // ---------------------------------------------------------------- eater (wall-devourer)

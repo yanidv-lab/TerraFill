@@ -128,6 +128,14 @@ class GameEngine(
     var stars = 0
         private set
 
+    /**
+     * Star CURRENCY paid out for this completion (scaled by how much of the board was
+     * claimed and by the level number). Valid once status is LEVEL_COMPLETE. Distinct
+     * from [stars], which is the 0-3 performance rating shown on the level badge.
+     */
+    var starsEarned = 0
+        private set
+
     private val startingLives = initialLives
 
     // Enemy state
@@ -343,6 +351,7 @@ class GameEngine(
             for (enemy in enemies) {
                 enemy.setTarget(targetX, targetY)
                 enemy.update(grid, enemyDt)
+                enemy.advanceFacing(enemyDt)
             }
             // Eaters mutate the grid directly; refresh the version + percentage once.
             if (enemies.any { it.ateWall }) {
@@ -396,6 +405,15 @@ class GameEngine(
         val playerCx = playerX + 0.5
         val playerCy = playerY + 0.5
 
+        // Standing on reclaimed land with no trail out is SAFE ground: the roaming
+        // spiders live in the open territory and cannot reach the player there, even
+        // when their sprite brushes the boundary. Only the wall-hugging Crawler
+        // patrols the claimed edge, so it alone stays lethal on the surface. Once the
+        // player steps out (or is drawing a trail), everything is dangerous again.
+        val onSafeGround = !isDrawing &&
+            playerX in 0 until width && playerY in 0 until height &&
+            grid[playerX][playerY] == GridCellState.CAPTURED
+
         for (enemy in enemies) {
             // Enemy positions are cell coordinates; the visual center sits at +0.5.
             val ecx = enemy.x + 0.5
@@ -403,11 +421,14 @@ class GameEngine(
             val r = enemy.radius
 
             // Direct collision with the player square (approximated as a circle)
-            val dx = ecx - playerCx
-            val dy = ecy - playerCy
-            val hitDistance = r + PLAYER_HALF_SIZE
-            if (dx * dx + dy * dy < hitDistance * hitDistance) {
-                return true
+            val threatensPlayer = !onSafeGround || enemy.type == "Crawler"
+            if (threatensPlayer) {
+                val dx = ecx - playerCx
+                val dy = ecy - playerCy
+                val hitDistance = r + PLAYER_HALF_SIZE
+                if (dx * dx + dy * dy < hitDistance * hitDistance) {
+                    return true
+                }
             }
 
             // Collision with any trail cell the enemy circle overlaps
@@ -471,6 +492,11 @@ class GameEngine(
     /** True if any web projectile currently overlaps the player. */
     private fun checkWebCollisions(): Boolean {
         if (activeWebs.isEmpty()) return false
+        // Same safe-ground rule as spiders: webs are stopped by claimed land, so a
+        // player standing on it cannot be hit.
+        if (!isDrawing && playerX in 0 until width && playerY in 0 until height &&
+            grid[playerX][playerY] == GridCellState.CAPTURED
+        ) return false
         val pcx = playerX + 0.5
         val pcy = playerY + 0.5
         val hitDistance = WEB_RADIUS + PLAYER_HALF_SIZE
@@ -549,6 +575,10 @@ class GameEngine(
                             timeLimitSeconds = levelConfig.timeLimitSeconds,
                             livesRemaining = lives,
                             initialLives = startingLives
+                        )
+                        starsEarned = StarEconomy.award(
+                            level = levelConfig.levelNumber,
+                            capturedPercentage = capturedPercentage
                         )
                         status = GameStateStatus.LEVEL_COMPLETE
                     }
@@ -670,6 +700,64 @@ class GameEngine(
         // The head teleports on reset, so the body must not lag across the field
         pathHistory.clear()
         pathHistory.addFirst(Pair(playerX, playerY))
+    }
+
+    /**
+     * Serializes the claimed territory as a compact '1'/'0' mask in column-major
+     * order, for mid-level saves. Trail cells are written as open ground: a resumed
+     * run always restarts the player safely on the border with no trail.
+     */
+    fun exportCapturedMask(): String {
+        val sb = StringBuilder(width * height)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                sb.append(if (grid[x][y] == GridCellState.CAPTURED) '1' else '0')
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Restores a mid-level save produced by [exportCapturedMask]: the claimed board,
+     * score, lives and remaining time. The player returns to the safe spawn with no
+     * trail and enemies keep their deterministic starting positions, so a resumed run
+     * is never mid-collision. Ignores a mask that does not match this board.
+     */
+    fun restoreSnapshot(capturedMask: String, savedScore: Int, savedLives: Int, savedTime: Double) {
+        if (capturedMask.length != width * height) return
+
+        var i = 0
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                grid[x][y] = if (capturedMask[i] == '1') GridCellState.CAPTURED else GridCellState.EMPTY
+                i++
+            }
+        }
+        // The border is always claimed, whatever the save said.
+        for (x in 0 until width) {
+            grid[x][0] = GridCellState.CAPTURED
+            grid[x][height - 1] = GridCellState.CAPTURED
+        }
+        for (y in 0 until height) {
+            grid[0][y] = GridCellState.CAPTURED
+            grid[width - 1][y] = GridCellState.CAPTURED
+        }
+
+        score = savedScore
+        lives = savedLives.coerceAtLeast(1)
+        timeRemainingSeconds = savedTime.coerceIn(1.0, levelConfig.timeLimitSeconds.toDouble())
+
+        trail.clear()
+        isDrawing = false
+        playerDirection = Direction.NONE
+        playerX = width / 2
+        playerY = 0
+        pathHistory.clear()
+        pathHistory.addFirst(Pair(playerX, playerY))
+        activeWebs.clear()
+        webs = emptyList()
+        gridVersion++
+        recalculateCapturedPercentage()
     }
 
     /**

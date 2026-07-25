@@ -1,6 +1,14 @@
 package com.example.engine
 
 /**
+ * A spider ability making its first appearance on a level, so the UI can introduce
+ * it to the player before play starts.
+ *
+ * @param type matches [Enemy.type] so the UI can pick the right sprite and colour.
+ */
+data class EnemyIntro(val type: String, val name: String, val description: String)
+
+/**
  * Data-driven configuration for a single level in TerraFill.
  *
  * Levels are generated procedurally by [getConfig] so difficulty keeps ramping
@@ -39,6 +47,20 @@ data class LevelConfig(
     companion object {
         /** Number of levels shown in the campaign / level-select menu. */
         const val TOTAL_LEVELS = 20
+
+        /**
+         * The enemy type that debuts at [level], or null if the roster is unchanged.
+         * Keep in sync with the count formulas in [getConfig].
+         */
+        fun newEnemyAt(level: Int): EnemyIntro? = when (level) {
+            1 -> EnemyIntro("Bouncer", "BOUNCER & CRAWLER", "They drift and hug the walls. Never let one touch you or your trail.")
+            3 -> EnemyIntro("Jumper", "JUMPING SPIDER", "Drifts calmly, then pounces in sudden fast leaps.")
+            4 -> EnemyIntro("Eater", "WALL EATER", "Slow, but it devours the land you have claimed. Keep re-taking ground.")
+            5 -> EnemyIntro("Hunter", "HUNTER", "Actively chases you. Juke it with sharp turns.")
+            7 -> EnemyIntro("Speeder", "SPEEDER", "Crosses the whole field in a blink. Watch before you draw.")
+            15 -> EnemyIntro("Spitter", "WEB SPITTER", "Stands still and shoots webs at you. Captured land blocks them.")
+            else -> null
+        }
 
         /** Upper bound on total enemies. Kept low on purpose: a tight squad of
          *  distinct abilities reads far better than a crowded screen of objects.
@@ -85,11 +107,15 @@ data class LevelConfig(
                 }
             }
 
-            // With fewer enemies, difficulty leans harder on ability strength: a
-            // steeper speed ramp and aggression that reaches full strength by ~L12.
-            val speed = (3.6 + (l - 1) * 0.45).coerceAtMost(11.0)
-            val aggression = ((l - 1) * 0.09).coerceIn(0.0, 1.0)
-            val target = (68.0 + (l - 1) * 1.6).coerceAtMost(88.0)
+            // STAGGERED difficulty: a level-up never raises everything at once.
+            // Speed/aggression ramp smoothly every level (the core pressure), while
+            // the capture target only steps every 2 levels and the clock only
+            // tightens every 3 - so most levels change just one or two dimensions.
+            // Overall the curve is deliberately gentler than a straight ramp: the
+            // target tops out at 80% instead of 88%, and time stays generous.
+            val speed = (3.4 + (l - 1) * 0.36).coerceAtMost(9.8)
+            val aggression = ((l - 1) * 0.065).coerceIn(0.0, 1.0)
+            val target = (64.0 + ((l - 1) / 2) * 1.6).coerceAtMost(80.0)
 
             // 28 cells across (was 32): larger cells, so the caterpillar and spiders
             // render clearly at arm's length on a phone. Height follows the screen
@@ -99,8 +125,10 @@ data class LevelConfig(
                 .let { Math.round(it).toInt() }
                 .coerceIn(36, 64)
             // Base time is tuned for a default ~28x44 board; scale with actual area.
+            // The clock only tightens every 3rd level and keeps a generous floor.
             val areaFactor = (width * height) / (28.0 * 44.0)
-            val time = Math.round((200 - (l - 1) * 8).coerceAtLeast(80) * areaFactor).toInt()
+            val baseTime = (200 - ((l - 1) / 3) * 8).coerceAtLeast(110)
+            val time = Math.round(baseTime * areaFactor).toInt()
 
             return LevelConfig(
                 levelNumber = l,

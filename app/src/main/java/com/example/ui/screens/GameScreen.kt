@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -56,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.engine.*
 import com.example.ui.GameUiState
+import com.example.ui.skins.CaterpillarSkin
 import com.example.ui.theme.*
 import kotlin.math.abs
 import kotlin.math.cos
@@ -243,11 +246,15 @@ fun GameScreen(
 ) {
     // Level-intro banner: LEVEL N + target, with a 3-2-1-GO countdown. Counts
     // 3..1 (sim held), then 0 shows "GO!" while play begins, then -1 hides it.
+    // Levels that introduce a new spider hold each count longer so the player
+    // has time to read the reveal card.
+    val newEnemy = remember(state.levelNumber) { LevelConfig.newEnemyAt(state.levelNumber) }
     var introCount by remember { mutableStateOf(3) }
     LaunchedEffect(state.levelNumber) {
         introCount = 3
+        val stepMs = if (newEnemy != null) 1300L else 700L
         while (introCount > 0) {
-            kotlinx.coroutines.delay(700)
+            kotlinx.coroutines.delay(stepMs)
             introCount--
         }
         kotlinx.coroutines.delay(600)
@@ -288,6 +295,31 @@ fun GameScreen(
     }
     LaunchedEffect(state.powerUpCollectedCount) {
         if (state.powerUpCollectedCount > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    // Time-pressure warnings. Each threshold fires exactly once per level: a
+    // banner + buzz at 30s left, and a sharper one at 10s. Booleans (not the raw
+    // seconds) key the effects, so they trigger on the crossing rather than every
+    // frame, and reset naturally when a new level starts.
+    val secondsLeft = state.timeRemainingSeconds
+    val warn30 = secondsLeft <= 30.0 && secondsLeft > 10.0
+    val warn10 = secondsLeft <= 10.0 && secondsLeft > 0.0
+    var timeBanner by remember(state.levelNumber) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(state.levelNumber, warn30) {
+        if (warn30) {
+            timeBanner = 30
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            kotlinx.coroutines.delay(1900)
+            if (timeBanner == 30) timeBanner = null
+        }
+    }
+    LaunchedEffect(state.levelNumber, warn10) {
+        if (warn10) {
+            timeBanner = 10
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            kotlinx.coroutines.delay(1900)
+            if (timeBanner == 10) timeBanner = null
+        }
     }
 
     // Auto-pause the game (and its music) when the app goes to the background
@@ -393,6 +425,18 @@ fun GameScreen(
                                 fontFamily = FontFamily.Monospace,
                                 letterSpacing = 1.sp
                             )
+
+                            // Your hero, wearing the equipped skin - so the colourway
+                            // you bought is on show every time a level begins.
+                            HeroPreview(skinId = state.skinId)
+
+                            // New-spider reveal: shows the newcomer's portrait, name and
+                            // what makes it dangerous, so nothing on the field is a mystery.
+                            if (newEnemy != null) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                NewEnemyCard(newEnemy)
+                            }
+
                             Spacer(modifier = Modifier.height(6.dp))
                             // The count itself pops in on every change
                             key(introCount) {
@@ -449,6 +493,77 @@ fun GameScreen(
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color.Black.copy(alpha = 0.55f))
                                 .padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                // Time-pressure warning banner (30s, then 10s), plus a red urgency
+                // vignette on the final ten seconds so the pressure is unmissable.
+                if (warn10 && state.status == GameStateStatus.RUNNING) {
+                    val urgency = rememberInfiniteTransition(label = "urgency").animateFloat(
+                        initialValue = 0.12f,
+                        targetValue = 0.34f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = androidx.compose.animation.core.tween(500),
+                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                        ),
+                        label = "urgencyPulse"
+                    )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color.Transparent, Color(0xFFFF2A2A).copy(alpha = urgency.value)),
+                                center = Offset(size.width / 2f, size.height / 2f),
+                                radius = size.width.coerceAtLeast(size.height) * 0.75f
+                            ),
+                            size = size
+                        )
+                    }
+                }
+                timeBanner?.let { warnAt ->
+                    val urgent = warnAt == 10
+                    val pulse = rememberInfiniteTransition(label = "timeWarn").animateFloat(
+                        initialValue = 0.94f,
+                        targetValue = 1.10f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = androidx.compose.animation.core.tween(if (urgent) 260 else 420),
+                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                        ),
+                        label = "timeWarnPulse"
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 26.dp)
+                            .graphicsLayer {
+                                scaleX = pulse.value
+                                scaleY = pulse.value
+                            }
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .border(
+                                2.dp,
+                                if (urgent) Color(0xFFFF2A2A) else NeonYellow,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (urgent) "10 SECONDS!" else "30 SECONDS LEFT",
+                            color = if (urgent) Color(0xFFFF6B6B) else NeonYellow,
+                            fontSize = if (urgent) 26.sp else 20.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 2.sp
+                        )
+                        Text(
+                            text = if (urgent) "FINISH IT!" else "HURRY UP",
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp
                         )
                     }
                 }
@@ -841,6 +956,8 @@ fun Playfield(
     // reused. Each may be null if the asset is corrupt - draw sites fall back to a
     // simple vector creature so the game keeps running no matter what.
     val caterpillarSprite = rememberSafeImage(R.drawable.sprite_caterpillar)
+    // Equipped cosmetic skin: recolours the hero art without flattening its shading.
+    val skinFilter = remember(state.skinId) { CaterpillarSkin.byId(state.skinId).colorFilter }
     val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
     val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
@@ -1166,8 +1283,10 @@ fun Playfield(
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
                     val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
-                    // New spider art faces LEFT natively; mirror when moving right
-                    val flip = enemy.vx > 0
+                    // New spider art faces LEFT natively; mirror when moving right.
+                    // Uses the engine's smoothed facing so a spider bouncing inside a
+                    // tight pocket doesn't mirror every frame (which read as flicker).
+                    val flip = enemy.facing > 0
 
                     // Crawl gait: a calm, low-frequency leg cadence (not a buzz). The
                     // body sways gently and bobs as if pushing off alternating legs;
@@ -1292,6 +1411,7 @@ fun Playfield(
                             targetLongSide = cellMin * PLAYER_SPRITE_CELLS,
                             rotationDeg = rotationDeg + waddleDeg,
                             flipX = flipX,
+                            colorFilter = skinFilter,
                             scaleX = stretch,
                             scaleY = 1f - (stretch - 1f) * 0.7f
                         )
@@ -1327,6 +1447,145 @@ fun Playfield(
             }
         }
 
+    }
+}
+
+/**
+ * The player's caterpillar shown on the level-intro banner in whichever skin is
+ * equipped, gently breathing - a character-select style look at your hero before
+ * the countdown starts.
+ */
+@Composable
+private fun HeroPreview(skinId: String, modifier: Modifier = Modifier) {
+    val art = rememberSafeImage(R.drawable.sprite_caterpillar) ?: return
+    val skin = remember(skinId) { CaterpillarSkin.byId(skinId) }
+    val breathe = rememberInfiniteTransition(label = "hero").animateFloat(
+        initialValue = 0.97f,
+        targetValue = 1.05f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(1100),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroBreathe"
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(top = 6.dp)
+    ) {
+        Image(
+            bitmap = art,
+            contentDescription = "Your caterpillar",
+            colorFilter = skin.colorFilter,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .widthIn(max = 220.dp)
+                .height(64.dp)
+                .graphicsLayer {
+                    scaleX = breathe.value
+                    scaleY = breathe.value
+                }
+        )
+        Text(
+            text = skin.displayName,
+            color = Color.White.copy(alpha = 0.65f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 2.sp
+        )
+    }
+}
+
+/**
+ * "NEW ENEMY" reveal card shown in the level-intro banner on levels that add a
+ * spider type: its portrait (tinted to match how it looks in play), its name, and
+ * one line on what makes it dangerous.
+ */
+@Composable
+private fun NewEnemyCard(intro: EnemyIntro) {
+    val resId = when (intro.type) {
+        "Crawler", "Hunter", "Spitter" -> R.drawable.sprite_spider_blue
+        "Jumper" -> R.drawable.sprite_spider
+        else -> R.drawable.sprite_spider_red   // Bouncer, Speeder, Eater
+    }
+    val accent = when (intro.type) {
+        "Bouncer" -> NeonMagenta
+        "Crawler" -> NeonCyan
+        "Hunter" -> Color(0xFFFF2A2A)
+        "Speeder" -> Color(0xFFFFD500)
+        "Eater" -> Color(0xFFB14CFF)
+        "Spitter" -> Color(0xFFAEEA00)
+        else -> NeonGreen   // Jumper
+    }
+    val tint = when (intro.type) {
+        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop)
+        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop)
+        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop)
+        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop)
+        else -> null
+    }
+    val portrait = rememberSafeImage(resId)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .widthIn(max = 320.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.72f))
+            .border(2.dp, accent.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "⚠ NEW ENEMY",
+            color = accent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 3.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        if (portrait != null) {
+            // Gentle idle pulse so the newcomer feels alive on the card
+            val breathe = rememberInfiniteTransition(label = "reveal").animateFloat(
+                initialValue = 0.94f,
+                targetValue = 1.06f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(900),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                ),
+                label = "revealPulse"
+            )
+            Image(
+                bitmap = portrait,
+                contentDescription = intro.name,
+                colorFilter = tint,
+                modifier = Modifier
+                    .size(74.dp)
+                    .graphicsLayer {
+                        scaleX = breathe.value
+                        scaleY = breathe.value
+                    }
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        Text(
+            text = intro.name,
+            color = Color.White,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 1.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = intro.description,
+            color = Color.White.copy(alpha = 0.8f),
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

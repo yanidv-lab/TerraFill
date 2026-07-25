@@ -24,12 +24,22 @@ private fun Enemy.stepBounce(grid: Array<Array<GridCellState>>, dt: Double) {
     val steps = ceil(distance / 0.5).toInt().coerceAtLeast(1)
     val sdt = dt / steps
 
+    // An enemy sealed into a tiny pocket used to reverse on EVERY sub-step, which
+    // made it vibrate in place and (because the sprite mirrors on vx's sign) flicker
+    // as if it were duplicating. Each axis may now flip at most once per update:
+    // afterwards the enemy simply holds still on that axis until the next tick.
+    var bouncedX = false
+    var bouncedY = false
+
     repeat(steps) {
         val nextX = x + vx * sdt
         val gridX = floor(nextX).toInt().coerceIn(0, width - 1)
         val currentGridY = floor(y).toInt().coerceIn(0, height - 1)
         if (nextX < 0 || nextX >= width || grid[gridX][currentGridY] == GridCellState.CAPTURED) {
-            vx = -vx
+            if (!bouncedX) {
+                vx = -vx
+                bouncedX = true
+            }
         } else {
             x = nextX
         }
@@ -38,7 +48,10 @@ private fun Enemy.stepBounce(grid: Array<Array<GridCellState>>, dt: Double) {
         val currentGridX = floor(x).toInt().coerceIn(0, width - 1)
         val gridY = floor(nextY).toInt().coerceIn(0, height - 1)
         if (nextY < 0 || nextY >= height || grid[currentGridX][gridY] == GridCellState.CAPTURED) {
-            vy = -vy
+            if (!bouncedY) {
+                vy = -vy
+                bouncedY = true
+            }
         } else {
             y = nextY
         }
@@ -77,6 +90,25 @@ sealed class Enemy {
     var ateWall: Boolean = false
 
     /**
+     * Smoothed heading used purely for rendering: -1 faces left, +1 faces right.
+     * The raw velocity sign can flip many times a second when an enemy is boxed in,
+     * which would mirror the sprite every frame; easing toward the desired facing
+     * keeps the spider visually stable while still turning when it truly turns.
+     */
+    var facing: Double = 1.0
+
+    /** Eases [facing] toward the current direction of travel. Called by the engine. */
+    fun advanceFacing(dt: Double) {
+        val desired = when {
+            vx > 0.05 -> 1.0
+            vx < -0.05 -> -1.0
+            else -> facing
+        }
+        val k = (dt * FACING_EASE_RATE).coerceIn(0.0, 1.0)
+        facing += (desired - facing) * k
+    }
+
+    /**
      * If this enemy launched a web this tick, returns its velocity as [vx, vy] (cells/sec)
      * and clears the pending shot; otherwise null. The engine spawns a web projectile from
      * the enemy's position with this velocity. Non-spitting enemies always return null.
@@ -87,6 +119,11 @@ sealed class Enemy {
      * Helper to clone the enemy instance.
      */
     abstract fun copyWith(x: Double = this.x, y: Double = this.y, vx: Double = this.vx, vy: Double = this.vy): Enemy
+
+    private companion object {
+        /** How fast the rendered facing catches up with the travel direction. */
+        const val FACING_EASE_RATE = 4.0
+    }
 }
 
 /**
