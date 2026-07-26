@@ -14,19 +14,31 @@ android {
     applicationId = "com.yanidv.terrafill"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Google Play rejects an upload whose versionCode it has already seen, so every
+    // store build needs a fresh one. CI passes the run number with -PversionCode=N;
+    // local builds fall back to 1.
+    versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+    versionName = (project.findProperty("versionName") as String?) ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Upload signing. The keystore itself is NEVER committed - it is kept by the
+  // author and injected by CI from a secret. Losing it means losing the ability to
+  // update the listing, so it must be backed up somewhere off the build machine.
+  val keystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+  val canSignRelease = keystoreFile.exists() &&
+    !System.getenv("STORE_PASSWORD").isNullOrBlank() &&
+    !System.getenv("KEY_PASSWORD").isNullOrBlank()
+
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      if (canSignRelease) {
+        storeFile = keystoreFile
+        storePassword = System.getenv("STORE_PASSWORD")
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+        keyPassword = System.getenv("KEY_PASSWORD")
+      }
     }
   }
 
@@ -35,7 +47,11 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      // Left unsigned when no keystore is available, so a release build on a machine
+      // without the secrets still compiles instead of failing on a missing file. An
+      // unsigned bundle cannot be uploaded to Play - the release workflow verifies
+      // the signature before publishing the artifact.
+      signingConfig = if (canSignRelease) signingConfigs.getByName("release") else null
     }
     // The debug build type uses the default auto-generated debug keystore.
   }

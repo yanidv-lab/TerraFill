@@ -1,0 +1,161 @@
+# Builds the SIGNED Android App Bundle (.aab) that gets uploaded to Google Play.
+# Play does not accept .apk uploads, so this - not build-apk.yml - is the release
+# pipeline. The debug APK workflow stays as-is for testing on your own phone.
+#
+# Run it from the Actions tab ("Release Bundle" -> Run workflow), or by pushing a
+# version tag such as v1.0.0.
+#
+# ONE-TIME SETUP - three repository secrets are required
+# (Settings -> Secrets and variables -> Actions -> New repository secret):
+#
+#   KEYSTORE_BASE64   the upload keystore, base64-encoded
+#   STORE_PASSWORD    the keystore password
+#   KEY_PASSWORD      the key password (usually the same)
+#
+# Create the keystore ONCE on your own machine and back it up somewhere safe -
+# if it is lost, the Play listing can never be updated again:
+#
+#   keytool -genkeypair -v -keystore my-upload-key.jks -keyalg RSA -keysize 2048 \
+#           -validity 10000 -alias upload
+#
+# Then encode it for the secret:
+#   Windows PowerShell:
+#     [Convert]::ToBase64String([IO.File]::ReadAllBytes("my-upload-key.jks")) | Set-Clipboard
+#   macOS / Linux:
+#     base64 -w0 my-upload-key.jks
+#
+# Do NOT commit the .jks file. .gitignore already excludes it.
+name: Release Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'Version name shown to players (e.g. 1.0.0)'
+        required: false
+        default: '1.0'
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # Java 21 (not 17): the Robolectric UI tests emulate Android SDK 36,
+      # which Robolectric only supports on Java 21+.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle (with build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # Fail early and clearly if the secrets have not been created yet, rather
+      # than producing an unsigned bundle that Play would silently reject.
+      - name: Check signing secrets are present
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$KEYSTORE_BASE64" ] && missing="$missing KEYSTORE_BASE64"
+          [ -z "$STORE_PASSWORD" ]  && missing="$missing STORE_PASSWORD"
+          [ -z "$KEY_PASSWORD" ]    && missing="$missing KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            echo "See the setup notes at the top of .github/workflows/release-bundle.yml"
+            exit 1
+          fi
+
+      - name: Restore the upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-key.jks"
+          # A truncated or mis-pasted secret decodes to something unusable; catch it
+          # here rather than three minutes into the build.
+          if [ ! -s "$RUNNER_TEMP/upload-key.jks" ]; then
+            echo "::error::KEYSTORE_BASE64 decoded to an empty file - re-copy the secret."
+            exit 1
+          fi
+
+      - name: Run engine tests
+        run: ./gradlew -p engine test
+
+      - name: Run app unit tests (includes asset integrity check)
+        run: ./gradlew :app:testDebugUnitTest
+
+      # versionCode must be unique and increasing for every Play upload. The run
+      # number is monotonic per workflow, so it is a safe source.
+      - name: Build signed App Bundle
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: upload
+        run: |
+          ./gradlew :app:bundleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName="${{ github.event.inputs.versionName || '1.0' }}"
+
+      # The build deliberately falls back to an unsigned bundle when no keystore is
+      # present, so prove the signature actually landed before handing over an
+      # artifact someone might try to upload.
+      - name: Verify the bundle is signed
+        run: |
+          bundle=$(find app/build/outputs/bundle/release -name '*.aab' | head -n1)
+          if [ -z "$bundle" ]; then
+            echo "::error::No .aab produced."
+            exit 1
+          fi
+          echo "Bundle: $bundle"
+          if ! unzip -l "$bundle" | grep -qE 'META-INF/.*\.(RSA|DSA|EC)'; then
+            echo "::error::Bundle is UNSIGNED - Play will reject it. Check the signing secrets."
+            exit 1
+          fi
+          echo "Signature block present."
+          ls -lh "$bundle"
+
+      - name: Clean up the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-key.jks"
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerraFill-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 90
+
+      # The mapping file is what turns an obfuscated Play Vitals stack trace back
+      # into readable line numbers. Keep it for every shipped build - it is useless
+      # to regenerate later.
+      - name: Upload ProGuard/R8 mapping (if produced)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerraFill-release-mapping
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload test reports (only when something failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-reports
+          path: |
+            app/build/reports/tests/
+            engine/build/reports/tests/
+          if-no-files-found: ignore
