@@ -38,6 +38,22 @@ Engine tests live in `engine/src/test/kotlin/` and cover movement, trail drawing
 
 Includes Robolectric/Compose UI tests and a Roborazzi screenshot test.
 
+## Privacy policy
+
+Google Play requires every listing to link a publicly reachable HTTPS privacy
+policy. This repo serves one from `docs/` via GitHub Pages:
+
+<https://yanidv-lab.github.io/TerraFill/privacy.html>
+
+To publish it, enable Pages once in **Settings → Pages → Build and deployment →
+Deploy from a branch → `main` / `/docs`**. Edits to `docs/privacy.html` then go
+live automatically on push.
+
+The policy states that the app collects nothing, which is true today: the
+manifest declares no permissions, so the app has no network access, no ads and no
+analytics. **Adding an ads SDK would make it inaccurate** — update the policy and
+the Play Console Data Safety answers in the same change.
+
 ## License
 
 **All rights reserved.** This repository is public for the author's development

@@ -28,7 +28,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Global crash handler — shows a readable error screen instead of silently closing.
+        // Global crash handler — shows a readable error screen instead of silently
+        // closing, then ALWAYS hands the crash on to the platform handler.
+        //
+        // That hand-off is what makes the crash visible: Android's own handler is
+        // what records the crash and feeds Google Play's Android Vitals. An earlier
+        // version killed the process itself instead, which produced a flatteringly
+        // clean crash rate in the Play Console while hiding every real defect.
+        // Reporting must never be traded for a nicer error screen.
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
@@ -42,14 +49,18 @@ class MainActivity : ComponentActivity() {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     }
                 )
-                // Kill the broken process so the system starts a fresh one to host the
-                // crash screen. Without this, a main-thread crash leaves the app frozen
-                // and the crash screen never appears.
-                android.os.Process.killProcess(android.os.Process.myPid())
-                kotlin.system.exitProcess(10)
             } catch (e: Exception) {
                 Log.e("TERRA_CRASH", "Failed to launch crash screen", e)
-                defaultHandler?.uncaughtException(thread, throwable)
+            }
+            // The platform handler reports the crash and then tears the process down,
+            // which also lets the system start a fresh process to host the crash
+            // screen requested above. Only if it is somehow absent do we stop the
+            // broken process ourselves, so the app can never hang half-dead.
+            if (defaultHandler != null) {
+                defaultHandler.uncaughtException(thread, throwable)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+                kotlin.system.exitProcess(10)
             }
         }
 
