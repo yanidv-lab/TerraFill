@@ -9,16 +9,21 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * A simple crash-reporter screen that displays the full stack trace whenever
- * the app crashes. Launched automatically by the UncaughtExceptionHandler in
- * MainActivity. Uses plain Android Views (no Compose) so it is immune to any
- * Compose-related crash that triggered it.
+ * The screen shown after a crash. Launched automatically by the
+ * UncaughtExceptionHandler in MainActivity. Uses plain Android Views (no Compose)
+ * so it is immune to any Compose-related crash that triggered it.
+ *
+ * Debug builds show the full stack trace, which is what makes a bug reportable
+ * during development. Release builds show an apology instead: a player has no use
+ * for a Java stack trace, and the crash is already on its way to Play's Android
+ * Vitals with a far better trace than anyone could screenshot.
  */
 class CrashActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val showDetails = BuildConfig.DEBUG
         val stackTrace = intent.getStringExtra(EXTRA_STACK_TRACE)
             ?: "No crash information available."
 
@@ -30,7 +35,7 @@ class CrashActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "⚠ APP CRASHED"
+            text = if (showDetails) "⚠ APP CRASHED" else "⚠ SOMETHING WENT WRONG"
             textSize = 22f
             setTextColor(0xFFFF4466.toInt())
             setPadding(0, 0, 0, 16)
@@ -38,29 +43,44 @@ class CrashActivity : Activity() {
         })
 
         root.addView(TextView(this).apply {
-            text = "Error details (screenshot this):"
+            text = if (showDetails) {
+                "Error details (screenshot this):"
+            } else {
+                "TerraFill hit an unexpected problem and had to stop.\n\n" +
+                    "Your progress is saved. Reopen the app to keep playing.\n\n" +
+                    "The fault has been reported automatically - sorry about that."
+            }
             textSize = 12f
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(0, 0, 0, 8)
             typeface = android.graphics.Typeface.MONOSPACE
         })
 
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-            )
+        if (showDetails) {
+            val scrollView = ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            }
+
+            scrollView.addView(TextView(this).apply {
+                text = stackTrace
+                textSize = 10f
+                setTextColor(0xFFE0E0E0.toInt())
+                typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(8, 8, 8, 8)
+                setBackgroundColor(0xFF2A0020.toInt())
+            })
+
+            root.addView(scrollView)
+        } else {
+            // Push the button to the bottom of the screen without the trace pane.
+            root.addView(android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            })
         }
-
-        scrollView.addView(TextView(this).apply {
-            text = stackTrace
-            textSize = 10f
-            setTextColor(0xFFE0E0E0.toInt())
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(8, 8, 8, 8)
-            setBackgroundColor(0xFF2A0020.toInt())
-        })
-
-        root.addView(scrollView)
 
         root.addView(Button(this).apply {
             text = "CLOSE APP"
