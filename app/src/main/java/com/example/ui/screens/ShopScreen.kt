@@ -14,9 +14,15 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,6 +59,12 @@ fun ShopScreen(
     modifier: Modifier = Modifier
 ) {
     val portrait = rememberSafeImage(R.drawable.sprite_caterpillar)
+
+    // Nothing is charged on a single tap: a purchase always goes through this
+    // confirmation first, so a mis-tap on a crowded grid cannot spend stars the
+    // player spent several levels earning. Equipping an owned skin is free and
+    // reversible, so it stays a single tap.
+    var pending by remember { mutableStateOf<PendingPurchase?>(null) }
 
     JungleBackdrop(modifier = modifier) {
         Column(
@@ -95,13 +107,20 @@ fun ShopScreen(
                 textAlign = TextAlign.Center
             )
 
-            // Consumable: spare lives, carried between levels until a run is lost
+            // Consumable: spare lives, spent on the next level started
             ExtraLifeCard(
                 held = extraLives,
                 cost = extraLifeCost,
                 cap = maxExtraLives,
                 affordable = availableStars >= extraLifeCost,
-                onBuy = onBuyExtraLife
+                onBuy = {
+                    pending = PendingPurchase(
+                        title = "EXTRA LIFE",
+                        detail = "Adds one life to the next level you play. Spent as soon as that level starts.",
+                        cost = extraLifeCost,
+                        confirm = onBuyExtraLife
+                    )
+                }
             )
 
             // Two-column grid of skins
@@ -119,7 +138,18 @@ fun ShopScreen(
                             equipped = skin.id == selectedSkin,
                             affordable = availableStars >= skin.cost,
                             portrait = portrait,
-                            onClick = { if (owned) onEquip(skin) else onBuy(skin) },
+                            onClick = {
+                                if (owned) {
+                                    onEquip(skin)
+                                } else {
+                                    pending = PendingPurchase(
+                                        title = skin.displayName,
+                                        detail = skin.blurb.ifEmpty { "A new look for your caterpillar." },
+                                        cost = skin.cost,
+                                        confirm = { onBuy(skin) }
+                                    )
+                                }
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -128,7 +158,106 @@ fun ShopScreen(
                 }
             }
         }
+
+        pending?.let { purchase ->
+            ConfirmPurchaseDialog(
+                purchase = purchase,
+                balance = availableStars,
+                onConfirm = {
+                    purchase.confirm()
+                    pending = null
+                },
+                onDismiss = { pending = null }
+            )
+        }
     }
+}
+
+/** A purchase awaiting the player's confirmation. */
+private data class PendingPurchase(
+    val title: String,
+    val detail: String,
+    val cost: Int,
+    val confirm: () -> Unit
+)
+
+/**
+ * Confirmation step for anything that spends stars: names the item, its price and
+ * what the balance will be afterwards, and requires a deliberate BUY.
+ */
+@Composable
+private fun ConfirmPurchaseDialog(
+    purchase: PendingPurchase,
+    balance: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0A1F0E),
+        titleContentColor = Color.White,
+        textContentColor = Color.White.copy(alpha = 0.75f),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.border(2.dp, NeonYellow.copy(alpha = 0.7f), RoundedCornerShape(18.dp)),
+        title = {
+            Text(
+                text = "BUY ${purchase.title}?",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = purchase.detail,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 17.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = NeonYellow,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "  ${purchase.cost}  ·  ${(balance - purchase.cost).coerceAtLeast(0)} LEFT",
+                        color = NeonYellow,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, modifier = Modifier.testTag("confirm_purchase")) {
+                Text(
+                    text = "BUY",
+                    color = NeonYellow,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("cancel_purchase")) {
+                Text(
+                    text = "CANCEL",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+    )
 }
 
 /**

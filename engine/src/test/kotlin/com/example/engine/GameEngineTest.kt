@@ -1231,6 +1231,47 @@ class GameEngineTest {
         assertTrue("a spitter should have launched at least one web", sawWeb)
     }
 
+    // ---------------------------------------------------------------- spare lives
+
+    @Test
+    fun `granting spare lives raises the life count of a run in progress`() {
+        val engine = GameEngine(LevelConfig.getConfig(1), initialLives = 3)
+        engine.grantExtraLives(2)
+        assertEquals(5, engine.lives)
+    }
+
+    @Test
+    fun `granting zero or fewer spare lives changes nothing`() {
+        val engine = GameEngine(LevelConfig.getConfig(1), initialLives = 3)
+        engine.grantExtraLives(0)
+        engine.grantExtraLives(-4)
+        assertEquals(3, engine.lives)
+    }
+
+    @Test
+    fun `a granted spare life does not hand out the flawless-run star for free`() {
+        // The flawless bonus compares lives remaining against lives started with, so
+        // the baseline has to move with the grant - otherwise buying a spare life
+        // would let a player lose one and still be scored as untouched.
+        val flawless = computeStars(
+            capturedPercentage = 90.0,
+            targetPercentage = 75.0,
+            timeRemainingSeconds = 100.0,
+            timeLimitSeconds = 200,
+            livesRemaining = 4,
+            initialLives = 4
+        )
+        val lostOne = computeStars(
+            capturedPercentage = 90.0,
+            targetPercentage = 75.0,
+            timeRemainingSeconds = 100.0,
+            timeLimitSeconds = 200,
+            livesRemaining = 3,
+            initialLives = 4
+        )
+        assertTrue("a spotless run should rate at least as high", flawless >= lostOne)
+    }
+
     // ---------------------------------------------------------------- enemy spawning
 
     @Test

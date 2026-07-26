@@ -191,7 +191,9 @@ fun NavGraph(
                     viewModel.toggleSound()
                 },
                 onFieldSized = { aspect ->
-                    viewModel.onFieldSized(aspect)
+                    // Tagged with this screen's own level so a layout pass that
+                    // lands before the level switch cannot restart the old level.
+                    viewModel.onFieldSized(aspect, levelNumber)
                 }
             )
         }
