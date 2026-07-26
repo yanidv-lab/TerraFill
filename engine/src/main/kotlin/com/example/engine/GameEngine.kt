@@ -138,7 +138,7 @@ class GameEngine(
     var starsEarned = 0
         private set
 
-    private val startingLives = initialLives
+    private var startingLives = initialLives
 
     // Enemy state
     val enemies = mutableListOf<Enemy>()
@@ -868,6 +868,23 @@ class GameEngine(
             }
         }
         return sb.toString()
+    }
+
+    /**
+     * Adds shop-bought spare lives to a run that has already begun.
+     *
+     * The bank of spare lives lives in storage and is read asynchronously, so it can
+     * only be applied a moment after the level starts. Granting here (rather than
+     * through the constructor) means the level never has to wait on a disk read, and
+     * a slow read can never silently drop a life the player paid for.
+     *
+     * The starting-lives baseline moves with the grant, so the flawless-run star is
+     * still only awarded for finishing without losing any life.
+     */
+    fun grantExtraLives(count: Int) {
+        if (count <= 0) return
+        lives += count
+        startingLives += count
     }
 
     /**

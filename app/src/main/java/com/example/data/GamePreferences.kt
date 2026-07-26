@@ -112,6 +112,21 @@ class GamePreferences(context: Context) {
     }
 
     /**
+     * Empties the bank of spare lives and returns what was in it, in one atomic
+     * read-modify-write. Called when a level starts: reading and clearing as separate
+     * steps could drop a purchase made in between, or hand the same life to two
+     * levels.
+     */
+    suspend fun takeAllExtraLives(): Int {
+        var taken = 0
+        appContext.dataStore.edit { preferences ->
+            taken = preferences[EXTRA_LIVES] ?: 0
+            preferences[EXTRA_LIVES] = 0
+        }
+        return taken
+    }
+
+    /**
      * Updates the banked spare lives. The bank is emptied as soon as a level starts:
      * a purchased life boosts exactly one level and never carries past it.
      */

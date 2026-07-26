@@ -133,12 +133,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Spare lives bought from the shop and waiting to be spent. They are added on
-     * top of the standard three for ONE level - the next one started - and are
-     * consumed the moment that level begins, whether or not they get used.
+     * top of the standard three for ONE level - whichever the player starts next,
+     * replays and earlier levels included - and are withdrawn the moment that level
+     * begins, whether or not they get used.
      *
-     * Collected eagerly rather than only while a screen is watching, because
-     * [startLevel] reads this value the instant the player enters a level and a
-     * stale zero here would silently swallow a purchase.
+     * This is the shop's view of the bank. The withdrawal itself does NOT read it:
+     * see [withdrawSpareLives], which goes to storage so it can never act on a stale
+     * cached value. Collected eagerly so the shop's cap check is accurate as soon as
+     * the screen opens.
      */
     val extraLives: StateFlow<Int> = preferences.extraLives
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
@@ -230,9 +232,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // True when the current engine was restored from a save, so the aspect-driven
     // grid regeneration must not throw that restored board away.
     private var restoredCurrentLevel = false
-    // Spare lives already deducted from the bank and granted to the running level,
+    // Spare lives already withdrawn from the bank and granted to the running level,
     // so the aspect-driven restart can re-grant them without charging again.
     private var spareLivesInPlay = 0
+    // The level the player last asked to play. Layout callbacks arriving for any
+    // other level are stale and must not restart anything.
+    private var requestedLevel: Int? = null
 
     init {
         // Observe unlocked level to update UI state accordingly
@@ -269,30 +274,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Initializes and starts a new game session for the specified level.
      *
      * [reuseSpareLives] is for the internal restart that reshapes the board to the
-     * screen: it rebuilds the same level with the spare lives already granted,
-     * instead of charging the (by then empty) bank a second time.
+     * screen: it re-grants the spare lives already withdrawn for this level instead
+     * of going back to the (by then empty) bank for a second helping.
      */
     fun startLevel(levelNumber: Int, reuseSpareLives: Boolean = false) {
         val config = LevelConfig.getConfig(levelNumber, fieldAspect)
+        // Remember what the player actually asked for, so a late layout callback for
+        // a level they have already left cannot restart the wrong one.
+        requestedLevel = config.levelNumber
 
         // A resume re-enters a level that already paid for its spare lives (they
         // are part of the saved life count), so it must not be charged again.
         val resume = pendingResume?.takeIf { it.level == config.levelNumber }
         pendingResume = null
 
-        // Spare lives are a ONE-LEVEL boost: whatever is banked rides on top of the
-        // standard three for this level only and is spent the moment it starts, so
-        // it never accumulates across attempts - win, lose or quit.
-        val spare = when {
-            resume != null -> 0
-            reuseSpareLives -> spareLivesInPlay
-            else -> extraLives.value
-        }
-        spareLivesInPlay = spare
-        val newEngine = GameEngine(config, initialLives = BASE_LIVES + spare)
-        if (!reuseSpareLives && spare > 0) {
-            viewModelScope.launch { preferences.setExtraLives(0) }
-        }
+        val newEngine = GameEngine(config, initialLives = BASE_LIVES)
         engine = newEngine
         lastCaptureCount = 0
         lastCrashCount = 0
@@ -319,7 +315,41 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch { preferences.clearSavedGame() }
         }
 
+        // Spare lives are a ONE-LEVEL boost. A resumed run already carries the spare
+        // inside its saved life count, so it must not be charged again.
+        when {
+            resume != null -> spareLivesInPlay = 0
+            reuseSpareLives -> newEngine.grantExtraLives(spareLivesInPlay)
+            else -> withdrawSpareLives(config.levelNumber)
+        }
+
         updateUiStateFromEngine(newEngine)
+    }
+
+    /**
+     * Empties the bank of shop-bought lives and hands them to the level that is
+     * starting, whichever level that is - replays and earlier levels included.
+     *
+     * The bank lives on disk, so it is read asynchronously and applied to the running
+     * engine a moment after the level begins. Reading it synchronously from a cached
+     * flow was the old approach and could observe a stale zero, silently swallowing a
+     * purchase. If the player has already left the level by the time the read lands,
+     * the lives go straight back into the bank rather than evaporating.
+     */
+    private fun withdrawSpareLives(levelNumber: Int) {
+        spareLivesInPlay = 0
+        viewModelScope.launch {
+            val spare = preferences.takeAllExtraLives()
+            if (spare <= 0) return@launch
+            val active = engine
+            if (active != null && active.levelConfig.levelNumber == levelNumber) {
+                active.grantExtraLives(spare)
+                spareLivesInPlay = spare
+                updateUiStateFromEngine(active)
+            } else {
+                preferences.setExtraLives(spare)
+            }
+        }
     }
 
     /**
@@ -328,13 +358,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * the level has effectively not begun yet (no score, no trail, first seconds),
      * regenerate it so the grid exactly fits the screen. Later levels reuse the stored
      * aspect directly, so this restart only ever happens right after app start.
+     *
+     * [forLevel] is the level the screen reporting this size belongs to, taken from
+     * the navigation argument. Layout runs on its own schedule and can fire before
+     * the new level has been started, at which point [engine] is still the level the
+     * player just left - restarting THAT one dropped the player back into the level
+     * they had quit instead of the one they picked. Anything that does not match the
+     * level currently being asked for is ignored.
      */
-    fun onFieldSized(aspectWidthOverHeight: Float) {
+    fun onFieldSized(aspectWidthOverHeight: Float, forLevel: Int) {
         if (!aspectWidthOverHeight.isFinite() || aspectWidthOverHeight <= 0f) return
+        val active = engine ?: return
+        if (active.levelConfig.levelNumber != forLevel || requestedLevel != forLevel) return
         val newAspect = aspectWidthOverHeight.toDouble()
         val changed = kotlin.math.abs(newAspect - fieldAspect) > 0.02
         fieldAspect = newAspect
-        val active = engine ?: return
         val justStarted = active.score == 0 &&
             !active.isDrawing &&
             active.timeRemainingSeconds > active.levelConfig.timeLimitSeconds - 3.0
