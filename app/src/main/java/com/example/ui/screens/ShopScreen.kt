@@ -132,9 +132,9 @@ fun ShopScreen(
 }
 
 /**
- * Shop card for the spare-life consumable: shows how many are banked, what one
- * costs, and how they behave (they survive level completions but are lost when a
- * level is lost).
+ * Shop card for the spare-life consumable: shows how many are queued for the next
+ * level, what one costs, and how they behave (they are spent as soon as a level
+ * starts and never carry past it).
  */
 @Composable
 private fun ExtraLifeCard(
@@ -178,7 +178,7 @@ private fun ExtraLifeCard(
                 )
             }
             Text(
-                text = if (full) "MAX $held/$cap" else "HELD $held/$cap",
+                text = if (full) "MAX $held/$cap" else "NEXT LEVEL $held/$cap",
                 color = if (full) NeonYellow else Color.White.copy(alpha = 0.75f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -186,7 +186,7 @@ private fun ExtraLifeCard(
             )
         }
         Text(
-            text = "Start every level with an extra life. Kept when you clear a level, lost when a level beats you.",
+            text = "Adds one life to the NEXT level you play. Spent the moment that level starts - win or lose, it does not carry over.",
             color = Color.White.copy(alpha = 0.6f),
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,

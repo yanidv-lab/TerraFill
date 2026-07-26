@@ -112,8 +112,8 @@ class GamePreferences(context: Context) {
     }
 
     /**
-     * Updates the banked spare lives - used to carry survivors into the next level
-     * and to wipe the bank when a run ends.
+     * Updates the banked spare lives. The bank is emptied as soon as a level starts:
+     * a purchased life boosts exactly one level and never carries past it.
      */
     suspend fun setExtraLives(count: Int) {
         appContext.dataStore.edit { preferences ->
