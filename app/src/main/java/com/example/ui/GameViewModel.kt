@@ -131,9 +131,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val totalStarsEarned: StateFlow<Int> = preferences.totalStarsEarned
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    /** Spare lives bought from the shop, added on top of the standard three. */
+    /**
+     * Spare lives bought from the shop and waiting to be spent. They are added on
+     * top of the standard three for ONE level - the next one started - and are
+     * consumed the moment that level begins, whether or not they get used.
+     *
+     * Collected eagerly rather than only while a screen is watching, because
+     * [startLevel] reads this value the instant the player enters a level and a
+     * stale zero here would silently swallow a purchase.
+     */
     val extraLives: StateFlow<Int> = preferences.extraLives
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     private val starsSpentOnConsumables: StateFlow<Int> = preferences.starsSpentOnConsumables
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
@@ -222,6 +230,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // True when the current engine was restored from a save, so the aspect-driven
     // grid regeneration must not throw that restored board away.
     private var restoredCurrentLevel = false
+    // Spare lives already deducted from the bank and granted to the running level,
+    // so the aspect-driven restart can re-grant them without charging again.
+    private var spareLivesInPlay = 0
 
     init {
         // Observe unlocked level to update UI state accordingly
@@ -256,11 +267,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Initializes and starts a new game session for the specified level.
+     *
+     * [reuseSpareLives] is for the internal restart that reshapes the board to the
+     * screen: it rebuilds the same level with the spare lives already granted,
+     * instead of charging the (by then empty) bank a second time.
      */
-    fun startLevel(levelNumber: Int) {
+    fun startLevel(levelNumber: Int, reuseSpareLives: Boolean = false) {
         val config = LevelConfig.getConfig(levelNumber, fieldAspect)
-        // Spare lives bought in the shop ride on top of the standard three.
-        val newEngine = GameEngine(config, initialLives = BASE_LIVES + extraLives.value)
+
+        // A resume re-enters a level that already paid for its spare lives (they
+        // are part of the saved life count), so it must not be charged again.
+        val resume = pendingResume?.takeIf { it.level == config.levelNumber }
+        pendingResume = null
+
+        // Spare lives are a ONE-LEVEL boost: whatever is banked rides on top of the
+        // standard three for this level only and is spent the moment it starts, so
+        // it never accumulates across attempts - win, lose or quit.
+        val spare = when {
+            resume != null -> 0
+            reuseSpareLives -> spareLivesInPlay
+            else -> extraLives.value
+        }
+        spareLivesInPlay = spare
+        val newEngine = GameEngine(config, initialLives = BASE_LIVES + spare)
+        if (!reuseSpareLives && spare > 0) {
+            viewModelScope.launch { preferences.setExtraLives(0) }
+        }
         engine = newEngine
         lastCaptureCount = 0
         lastCrashCount = 0
@@ -275,8 +307,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // Apply a pending resume for this level, if one is armed. A mask from a
         // differently shaped board is rejected inside restoreSnapshot, in which case
         // the level simply starts fresh.
-        val resume = pendingResume?.takeIf { it.level == config.levelNumber }
-        pendingResume = null
         restoredCurrentLevel = false
         if (resume != null) {
             newEngine.restoreSnapshot(
@@ -309,7 +339,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             !active.isDrawing &&
             active.timeRemainingSeconds > active.levelConfig.timeLimitSeconds - 3.0
         if (changed && justStarted && !restoredCurrentLevel && active.status == GameStateStatus.RUNNING) {
-            startLevel(active.levelConfig.levelNumber)
+            startLevel(active.levelConfig.levelNumber, reuseSpareLives = true)
         }
     }
 
@@ -364,16 +394,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (activeEngine.status != lastStatus) {
             when (activeEngine.status) {
                 // The run is over either way, so the mid-level save is obsolete.
+                // Spare lives were already spent at level start, so neither ending
+                // adjusts the bank: unused ones simply expire with the level.
                 GameStateStatus.LEVEL_COMPLETE -> {
                     sound.levelComplete(); sound.pauseMusic(); clearSavedGame()
-                    // Spare lives that survived the level carry into the next one.
-                    val survivors = (activeEngine.lives - BASE_LIVES).coerceAtLeast(0)
-                    viewModelScope.launch { preferences.setExtraLives(survivors) }
                 }
                 GameStateStatus.GAME_OVER -> {
                     sound.gameOver(); sound.stopMusic(); clearSavedGame()
-                    // Losing the level burns the whole safety net.
-                    viewModelScope.launch { preferences.setExtraLives(0) }
                 }
                 else -> {}
             }
