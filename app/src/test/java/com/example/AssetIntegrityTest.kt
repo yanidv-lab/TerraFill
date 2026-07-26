@@ -73,6 +73,23 @@ class AssetIntegrityTest {
         )
     }
 
+    @Test
+    fun `every enemy type has its own sprite on disk`() {
+        val dir = locate("src/main/res/drawable-nodpi")
+            ?: fail("drawable-nodpi directory not found from ${File(".").absolutePath}").let { return }
+
+        // One painted sprite per enemy type. A missing file would compile fine
+        // only until R.drawable resolution, so keep the list here as the contract.
+        val required = listOf(
+            "sprite_caterpillar", "sprite_spider", "sprite_spider_blue", "sprite_spider_red",
+            "sprite_spider_hunter", "sprite_spider_speeder", "sprite_spider_eater",
+            "sprite_spider_spitter", "sprite_weaver", "sprite_hornet", "sprite_phantom",
+            "sprite_broodmother", "sprite_spiderling"
+        )
+        val missing = required.filter { name -> !File(dir, "$name.png").exists() }
+        assertTrue("missing enemy sprites: ${missing.joinToString()}", missing.isEmpty())
+    }
+
     private fun looksLikeMp3(file: File): Boolean {
         val m = magic(file, 3)
         if (m.size < 3) return false

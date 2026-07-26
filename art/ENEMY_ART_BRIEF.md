@@ -1,13 +1,17 @@
 # TerraFill Enemy Art Brief
 
-The game currently ships **three** spider drawables (`sprite_spider_red`,
-`sprite_spider_blue`, `sprite_spider` = green) and re-colours them for the other
-eight enemy types. Re-colouring is done with a flat `SrcAtop` tint, which throws
-away every bit of shading — those enemies render as solid-colour silhouettes.
+**Status: all nine sprites below are painted and shipping.** Every enemy type now
+has its own artwork and the renderer no longer applies a colour tint to any of
+them.
 
-This brief lists one prompt per enemy so each ability eventually gets real art.
-Drop finished PNGs into `app/src/main/res/drawable-nodpi/` using the filename in
-the table; the renderer picks them up by name.
+Previously the game shipped only three spider drawables (`sprite_spider_red`,
+`sprite_spider_blue`, `sprite_spider` = green) and re-coloured them for the other
+eight types with a flat `SrcAtop` tint, which replaced every pixel with a single
+colour and reduced those enemies to solid silhouettes.
+
+Keep the prompts below for regenerating or restyling a creature later. Drop the
+finished PNG into `app/src/main/res/drawable-nodpi/` under the filename in the
+table and the renderer picks it up with no code change.
 
 ## Rules for every image
 

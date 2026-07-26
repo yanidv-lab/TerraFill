@@ -1083,9 +1083,21 @@ fun Playfield(
     // shading), tints the trail it leaves, and may add a flourish over the body.
     val skin = remember(state.skinId) { CaterpillarSkin.byId(state.skinId) }
     val skinFilter = remember(skin) { skin.colorFilter }
+    // Every enemy type now has its own painted sprite. Earlier builds re-coloured
+    // three spiders with a flat SrcAtop tint, which replaced every pixel with one
+    // colour and reduced nine of the eleven types to solid silhouettes.
     val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
     val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
+    val hunterSprite = rememberSafeImage(R.drawable.sprite_spider_hunter)
+    val speederSprite = rememberSafeImage(R.drawable.sprite_spider_speeder)
+    val eaterSprite = rememberSafeImage(R.drawable.sprite_spider_eater)
+    val spitterSprite = rememberSafeImage(R.drawable.sprite_spider_spitter)
+    val weaverSprite = rememberSafeImage(R.drawable.sprite_weaver)
+    val hornetSprite = rememberSafeImage(R.drawable.sprite_hornet)
+    val phantomSprite = rememberSafeImage(R.drawable.sprite_phantom)
+    val broodmotherSprite = rememberSafeImage(R.drawable.sprite_broodmother)
+    val spiderlingSprite = rememberSafeImage(R.drawable.sprite_spiderling)
 
     Box(
         modifier = Modifier
@@ -1441,59 +1453,31 @@ fun Playfield(
                             }
                         }
                     }
-                    // Sprite per type: red = bouncer, blue = crawler, green = jumper,
-                    // crimson hunter, gold speeder, violet eater, venom-green spitter
+                    // One painted sprite per type - no recolouring, so every spider
+                    // keeps its own shading, markings and expression.
                     val sprite = when (enemy.type) {
                         "Bouncer" -> spiderRedSprite
                         "Crawler" -> spiderBlueSprite
-                        "Hunter" -> spiderBlueSprite
-                        "Speeder" -> spiderRedSprite
-                        "Eater" -> spiderRedSprite
-                        "Spitter" -> spiderBlueSprite
-                        "Weaver" -> spiderGreenSprite
-                        "Hornet" -> spiderRedSprite
-                        "Phantom" -> spiderBlueSprite
-                        "Broodmother" -> spiderRedSprite
-                        "Spiderling" -> spiderGreenSprite
+                        "Hunter" -> hunterSprite
+                        "Speeder" -> speederSprite
+                        "Eater" -> eaterSprite
+                        "Spitter" -> spitterSprite
+                        "Weaver" -> weaverSprite
+                        "Hornet" -> hornetSprite
+                        "Phantom" -> phantomSprite
+                        "Broodmother" -> broodmotherSprite
+                        "Spiderling" -> spiderlingSprite
                         else -> spiderGreenSprite   // Jumper
-                    }
-                    val tint = when (enemy.type) {
-                        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Weaver" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFDCDCDC), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Hornet" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFFFC107), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Phantom" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFB3E5FC), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Broodmother" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFF8E24AA), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Spiderling" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFCE93D8), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        else -> null
                     }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
+                    // Sizes are tuned against each sprite's own framing: the Hornet and
+                    // Phantom art carry a painted aura, so their creature fills less of
+                    // the image and needs no extra shrink.
                     val sizeScale = when (enemy.type) {
                         "Hunter" -> 1.15f
                         "Broodmother" -> 1.7f     // an imposing queen
-                        "Spiderling" -> 0.5f      // scurrying babies
-                        "Hornet" -> 0.85f
+                        "Spiderling" -> 0.55f     // scurrying babies
                         else -> 1f
                     }
                     // New spider art faces LEFT natively; mirror when moving right.
@@ -1526,6 +1510,8 @@ fun Playfield(
                     if (sprite != null) {
                         // Phantoms are see-through: you can watch them slide under
                         // your claimed land, which is what makes them unsettling.
+                        // The art is already painted as vapour, so this only needs a
+                        // light touch - any less and the ghost stops reading at all.
                         val ghost = enemy.type == "Phantom"
                         drawSprite(
                             image = sprite,
@@ -1533,10 +1519,9 @@ fun Playfield(
                             targetLongSide = spriteLong,
                             rotationDeg = wobbleDeg,
                             flipX = flip,
-                            colorFilter = tint,
                             scaleX = stretch,
                             scaleY = 1f / stretch,
-                            alpha = if (ghost) 0.55f else 1f
+                            alpha = if (ghost) 0.72f else 1f
                         )
                     } else {
                         // Asset failed to decode: draw a simple spider so gameplay continues
@@ -1723,17 +1708,30 @@ private fun HeroPreview(skinId: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Drawable for an enemy type, used by the reveal card so the portrait is the very
+ * same artwork the player is about to meet on the board.
+ */
+private fun enemyPortrait(type: String): Int = when (type) {
+    "Crawler" -> R.drawable.sprite_spider_blue
+    "Jumper" -> R.drawable.sprite_spider
+    "Hunter" -> R.drawable.sprite_spider_hunter
+    "Speeder" -> R.drawable.sprite_spider_speeder
+    "Eater" -> R.drawable.sprite_spider_eater
+    "Spitter" -> R.drawable.sprite_spider_spitter
+    "Weaver" -> R.drawable.sprite_weaver
+    "Hornet" -> R.drawable.sprite_hornet
+    "Phantom" -> R.drawable.sprite_phantom
+    "Broodmother" -> R.drawable.sprite_broodmother
+    "Spiderling" -> R.drawable.sprite_spiderling
+    else -> R.drawable.sprite_spider_red   // Bouncer
+}
+
+/**
  * "NEW ENEMY" reveal card shown in the level-intro banner on levels that add a
- * spider type: its portrait (tinted to match how it looks in play), its name, and
- * one line on what makes it dangerous.
+ * spider type: its portrait, its name, and one line on what makes it dangerous.
  */
 @Composable
 private fun NewEnemyCard(intro: EnemyIntro) {
-    val resId = when (intro.type) {
-        "Crawler", "Hunter", "Spitter" -> R.drawable.sprite_spider_blue
-        "Jumper" -> R.drawable.sprite_spider
-        else -> R.drawable.sprite_spider_red   // Bouncer, Speeder, Eater
-    }
     val accent = when (intro.type) {
         "Bouncer" -> NeonMagenta
         "Crawler" -> NeonCyan
@@ -1741,16 +1739,13 @@ private fun NewEnemyCard(intro: EnemyIntro) {
         "Speeder" -> Color(0xFFFFD500)
         "Eater" -> Color(0xFFB14CFF)
         "Spitter" -> Color(0xFFAEEA00)
+        "Weaver" -> Color(0xFFE0E0E0)
+        "Hornet" -> Color(0xFFFFC107)
+        "Phantom" -> Color(0xFF9FE8FF)
+        "Broodmother" -> Color(0xFFCE93D8)
         else -> NeonGreen   // Jumper
     }
-    val tint = when (intro.type) {
-        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        else -> null
-    }
-    val portrait = rememberSafeImage(resId)
+    val portrait = rememberSafeImage(enemyPortrait(intro.type))
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1784,7 +1779,6 @@ private fun NewEnemyCard(intro: EnemyIntro) {
             Image(
                 bitmap = portrait,
                 contentDescription = intro.name,
-                colorFilter = tint,
                 modifier = Modifier
                     .size(74.dp)
                     .graphicsLayer {
