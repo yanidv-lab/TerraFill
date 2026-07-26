@@ -75,13 +75,18 @@ fun NavGraph(
             val stars by viewModel.availableStars.collectAsStateWithLifecycle()
             val owned by viewModel.ownedSkins.collectAsStateWithLifecycle()
             val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
+            val spareLives by viewModel.extraLives.collectAsStateWithLifecycle()
             ShopScreen(
                 availableStars = stars,
                 ownedSkins = owned,
                 selectedSkin = equipped,
                 onBuy = { viewModel.buySkin(it) },
                 onEquip = { viewModel.equipSkin(it) },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                extraLives = spareLives,
+                extraLifeCost = GameViewModel.EXTRA_LIFE_COST,
+                maxExtraLives = GameViewModel.MAX_EXTRA_LIVES,
+                onBuyExtraLife = { viewModel.buyExtraLife() }
             )
         }
 

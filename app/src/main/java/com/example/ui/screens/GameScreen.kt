@@ -120,7 +120,8 @@ private fun DrawScope.drawSprite(
     flipX: Boolean,
     colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
     scaleX: Float = 1f,
-    scaleY: Float = 1f
+    scaleY: Float = 1f,
+    alpha: Float = 1f
 ) {
     val aspect = image.width.toFloat() / image.height.toFloat()
     val dw: Float
@@ -146,7 +147,8 @@ private fun DrawScope.drawSprite(
             ),
             dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
             filterQuality = FilterQuality.High,
-            colorFilter = colorFilter
+            colorFilter = colorFilter,
+            alpha = alpha
         )
     }
 }
@@ -1081,9 +1083,21 @@ fun Playfield(
     // shading), tints the trail it leaves, and may add a flourish over the body.
     val skin = remember(state.skinId) { CaterpillarSkin.byId(state.skinId) }
     val skinFilter = remember(skin) { skin.colorFilter }
+    // Every enemy type now has its own painted sprite. Earlier builds re-coloured
+    // three spiders with a flat SrcAtop tint, which replaced every pixel with one
+    // colour and reduced nine of the eleven types to solid silhouettes.
     val spiderRedSprite = rememberSafeImage(R.drawable.sprite_spider_red)
     val spiderBlueSprite = rememberSafeImage(R.drawable.sprite_spider_blue)
     val spiderGreenSprite = rememberSafeImage(R.drawable.sprite_spider)
+    val hunterSprite = rememberSafeImage(R.drawable.sprite_spider_hunter)
+    val speederSprite = rememberSafeImage(R.drawable.sprite_spider_speeder)
+    val eaterSprite = rememberSafeImage(R.drawable.sprite_spider_eater)
+    val spitterSprite = rememberSafeImage(R.drawable.sprite_spider_spitter)
+    val weaverSprite = rememberSafeImage(R.drawable.sprite_weaver)
+    val hornetSprite = rememberSafeImage(R.drawable.sprite_hornet)
+    val phantomSprite = rememberSafeImage(R.drawable.sprite_phantom)
+    val broodmotherSprite = rememberSafeImage(R.drawable.sprite_broodmother)
+    val spiderlingSprite = rememberSafeImage(R.drawable.sprite_spiderling)
 
     Box(
         modifier = Modifier
@@ -1312,6 +1326,31 @@ fun Playfield(
                     )
                 }
 
+                // ---------- 4c. Sticky web traps spun by Weavers ----------
+                for ((tx, ty) in state.webTraps) {
+                    val c = Offset((tx + 0.5f) * cellW, (ty + 0.5f) * cellH)
+                    val r = cellMin * 0.46f
+                    // Silk pad: concentric rings crossed by radial threads
+                    drawCircle(Color.White.copy(alpha = 0.16f), r, c)
+                    for (ring in 1..2) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.5f),
+                            radius = r * (ring / 2.4f),
+                            center = c,
+                            style = Stroke(width = cellMin * 0.045f)
+                        )
+                    }
+                    for (k in 0 until 6) {
+                        val a = k * (Math.PI / 3)
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.45f),
+                            start = c,
+                            end = c + Offset(cos(a).toFloat() * r, sin(a).toFloat() * r),
+                            strokeWidth = cellMin * 0.035f
+                        )
+                    }
+                }
+
                 // ---------- 5. Enemies: distinct spider per type ----------
                 for (enemy in state.enemies) {
                     val center = Offset(
@@ -1325,6 +1364,11 @@ fun Playfield(
                         "Speeder" -> Color(0xFFFFD500)
                         "Eater" -> Color(0xFFB14CFF)     // violet muncher
                         "Spitter" -> Color(0xFFAEEA00)   // venom yellow-green
+                        "Weaver" -> Color(0xFFE0E0E0)    // pale silk
+                        "Hornet" -> Color(0xFFFFC107)    // wasp amber
+                        "Phantom" -> Color(0xFF9FE8FF)   // spectral blue
+                        "Broodmother" -> Color(0xFF7B1FA2) // deep royal purple
+                        "Spiderling" -> Color(0xFFCE93D8) // pale brood
                         else -> NeonGreen   // Jumper
                     }
 
@@ -1347,6 +1391,38 @@ fun Playfield(
                             style = Stroke(width = cellMin * 0.12f)
                         )
                     }
+                    // Weaver telegraph: a silky ring swells as the next trap is spun.
+                    if (enemy.type == "Weaver") {
+                        val charge = ((enemy as? Weaver)?.spinCharge ?: 0.0).toFloat()
+                        if (charge > 0.05f) {
+                            drawCircle(
+                                color = Color.White,
+                                radius = cellMin * (0.9f + charge * 0.9f),
+                                center = center,
+                                alpha = 0.35f * charge,
+                                style = Stroke(width = cellMin * 0.09f)
+                            )
+                        }
+                    }
+                    // Broodmother telegraph: the egg sac glows before it hatches.
+                    if (enemy.type == "Broodmother") {
+                        val charge = ((enemy as? Broodmother)?.broodCharge ?: 0.0).toFloat()
+                        if (charge > 0.03f) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFE1BEE7).copy(alpha = 0.55f * charge),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = cellMin * 2.4f
+                                ),
+                                radius = cellMin * 2.4f,
+                                center = center
+                            )
+                        }
+                    }
+                    // Phantom: a spectral shimmer, drawn semi-transparent below.
                     // Spitter telegraph: a warning ring tightens as it charges a web shot.
                     if (enemy.type == "Spitter") {
                         val charge = ((enemy as? Spitter)?.spitCharge ?: 0.0).toFloat()
@@ -1377,35 +1453,33 @@ fun Playfield(
                             }
                         }
                     }
-                    // Sprite per type: red = bouncer, blue = crawler, green = jumper,
-                    // crimson hunter, gold speeder, violet eater, venom-green spitter
+                    // One painted sprite per type - no recolouring, so every spider
+                    // keeps its own shading, markings and expression.
                     val sprite = when (enemy.type) {
                         "Bouncer" -> spiderRedSprite
                         "Crawler" -> spiderBlueSprite
-                        "Hunter" -> spiderBlueSprite
-                        "Speeder" -> spiderRedSprite
-                        "Eater" -> spiderRedSprite
-                        "Spitter" -> spiderBlueSprite
+                        "Hunter" -> hunterSprite
+                        "Speeder" -> speederSprite
+                        "Eater" -> eaterSprite
+                        "Spitter" -> spitterSprite
+                        "Weaver" -> weaverSprite
+                        "Hornet" -> hornetSprite
+                        "Phantom" -> phantomSprite
+                        "Broodmother" -> broodmotherSprite
+                        "Spiderling" -> spiderlingSprite
                         else -> spiderGreenSprite   // Jumper
-                    }
-                    val tint = when (enemy.type) {
-                        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                        else -> null
                     }
                     val speed = kotlin.math.hypot(enemy.vx, enemy.vy).toFloat()
                     val leapScale = if (enemy.type == "Jumper") (1f + (speed / 20f)).coerceAtMost(1.6f) else 1f
-                    val sizeScale = if (enemy.type == "Hunter") 1.15f else 1f
+                    // Sizes are tuned against each sprite's own framing: the Hornet and
+                    // Phantom art carry a painted aura, so their creature fills less of
+                    // the image and needs no extra shrink.
+                    val sizeScale = when (enemy.type) {
+                        "Hunter" -> 1.15f
+                        "Broodmother" -> 1.7f     // an imposing queen
+                        "Spiderling" -> 0.55f     // scurrying babies
+                        else -> 1f
+                    }
                     // New spider art faces LEFT natively; mirror when moving right.
                     // Uses the engine's smoothed facing so a spider bouncing inside a
                     // tight pocket doesn't mirror every frame (which read as flicker).
@@ -1434,15 +1508,20 @@ fun Playfield(
                         lift = lift
                     )
                     if (sprite != null) {
+                        // Phantoms are see-through: you can watch them slide under
+                        // your claimed land, which is what makes them unsettling.
+                        // The art is already painted as vapour, so this only needs a
+                        // light touch - any less and the ghost stops reading at all.
+                        val ghost = enemy.type == "Phantom"
                         drawSprite(
                             image = sprite,
                             center = bodyCenter,
                             targetLongSide = spriteLong,
                             rotationDeg = wobbleDeg,
                             flipX = flip,
-                            colorFilter = tint,
                             scaleX = stretch,
-                            scaleY = 1f / stretch
+                            scaleY = 1f / stretch,
+                            alpha = if (ghost) 0.72f else 1f
                         )
                     } else {
                         // Asset failed to decode: draw a simple spider so gameplay continues
@@ -1629,17 +1708,30 @@ private fun HeroPreview(skinId: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Drawable for an enemy type, used by the reveal card so the portrait is the very
+ * same artwork the player is about to meet on the board.
+ */
+private fun enemyPortrait(type: String): Int = when (type) {
+    "Crawler" -> R.drawable.sprite_spider_blue
+    "Jumper" -> R.drawable.sprite_spider
+    "Hunter" -> R.drawable.sprite_spider_hunter
+    "Speeder" -> R.drawable.sprite_spider_speeder
+    "Eater" -> R.drawable.sprite_spider_eater
+    "Spitter" -> R.drawable.sprite_spider_spitter
+    "Weaver" -> R.drawable.sprite_weaver
+    "Hornet" -> R.drawable.sprite_hornet
+    "Phantom" -> R.drawable.sprite_phantom
+    "Broodmother" -> R.drawable.sprite_broodmother
+    "Spiderling" -> R.drawable.sprite_spiderling
+    else -> R.drawable.sprite_spider_red   // Bouncer
+}
+
+/**
  * "NEW ENEMY" reveal card shown in the level-intro banner on levels that add a
- * spider type: its portrait (tinted to match how it looks in play), its name, and
- * one line on what makes it dangerous.
+ * spider type: its portrait, its name, and one line on what makes it dangerous.
  */
 @Composable
 private fun NewEnemyCard(intro: EnemyIntro) {
-    val resId = when (intro.type) {
-        "Crawler", "Hunter", "Spitter" -> R.drawable.sprite_spider_blue
-        "Jumper" -> R.drawable.sprite_spider
-        else -> R.drawable.sprite_spider_red   // Bouncer, Speeder, Eater
-    }
     val accent = when (intro.type) {
         "Bouncer" -> NeonMagenta
         "Crawler" -> NeonCyan
@@ -1647,16 +1739,13 @@ private fun NewEnemyCard(intro: EnemyIntro) {
         "Speeder" -> Color(0xFFFFD500)
         "Eater" -> Color(0xFFB14CFF)
         "Spitter" -> Color(0xFFAEEA00)
+        "Weaver" -> Color(0xFFE0E0E0)
+        "Hornet" -> Color(0xFFFFC107)
+        "Phantom" -> Color(0xFF9FE8FF)
+        "Broodmother" -> Color(0xFFCE93D8)
         else -> NeonGreen   // Jumper
     }
-    val tint = when (intro.type) {
-        "Hunter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE01E2B), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Speeder" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFFFD500), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Eater" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF9C27B0), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        "Spitter" -> androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFAEEA00), androidx.compose.ui.graphics.BlendMode.SrcAtop)
-        else -> null
-    }
-    val portrait = rememberSafeImage(resId)
+    val portrait = rememberSafeImage(enemyPortrait(intro.type))
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1690,7 +1779,6 @@ private fun NewEnemyCard(intro: EnemyIntro) {
             Image(
                 bitmap = portrait,
                 contentDescription = intro.name,
-                colorFilter = tint,
                 modifier = Modifier
                     .size(74.dp)
                     .graphicsLayer {

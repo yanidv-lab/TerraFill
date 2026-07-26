@@ -64,6 +64,8 @@ data class GameUiState(
     val starsEarned: Int = 0,
     /** In-flight web projectiles fired by Spitter enemies. */
     val webShots: List<WebShot> = emptyList(),
+    /** Permanent sticky web traps spun by Weavers. */
+    val webTraps: List<Pair<Int, Int>> = emptyList(),
     /** Id of the caterpillar skin the player has equipped. */
     val skinId: String = "classic"
 )
@@ -72,6 +74,15 @@ data class GameUiState(
  * ViewModel coordinating UI flow and active GameEngine simulation.
  */
 class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        /** Lives every level starts with before shop-bought spares. */
+        const val BASE_LIVES = 3
+        /** Star price of one spare life. */
+        const val EXTRA_LIFE_COST = 100
+        /** Most spare lives that may be banked at once. */
+        const val MAX_EXTRA_LIVES = 3
+    }
 
     private val preferences = GamePreferences(application)
     private val sound = com.example.audio.SoundManager(application)
@@ -120,11 +131,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val totalStarsEarned: StateFlow<Int> = preferences.totalStarsEarned
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    /** Stars still available to spend: everything earned, minus what skins cost. */
-    val availableStars: StateFlow<Int> = combine(totalStarsEarned, ownedSkins) { earned, owned ->
-        val spent = CaterpillarSkin.ALL.filter { it.id in owned }.sumOf { it.cost }
-        (earned - spent).coerceAtLeast(0)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    /** Spare lives bought from the shop, added on top of the standard three. */
+    val extraLives: StateFlow<Int> = preferences.extraLives
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    private val starsSpentOnConsumables: StateFlow<Int> = preferences.starsSpentOnConsumables
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /**
+     * Stars still available to spend: everything earned, minus the cost of owned
+     * skins and of every consumable (extra life) bought so far.
+     */
+    val availableStars: StateFlow<Int> =
+        combine(totalStarsEarned, ownedSkins, starsSpentOnConsumables) { earned, owned, consumed ->
+            val skinSpend = CaterpillarSkin.ALL.filter { it.id in owned }.sumOf { it.cost }
+            (earned - skinSpend - consumed).coerceAtLeast(0)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Buys one spare life if the player can afford it and is under the cap. */
+    fun buyExtraLife() {
+        if (extraLives.value >= MAX_EXTRA_LIVES) return
+        if (availableStars.value < EXTRA_LIFE_COST) return
+        viewModelScope.launch {
+            preferences.purchaseExtraLife(cost = EXTRA_LIFE_COST, cap = MAX_EXTRA_LIVES)
+        }
+    }
 
     /** Buys a skin when the player can afford it, and equips it. */
     fun buySkin(skin: CaterpillarSkin) {
@@ -228,7 +259,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun startLevel(levelNumber: Int) {
         val config = LevelConfig.getConfig(levelNumber, fieldAspect)
-        val newEngine = GameEngine(config)
+        // Spare lives bought in the shop ride on top of the standard three.
+        val newEngine = GameEngine(config, initialLives = BASE_LIVES + extraLives.value)
         engine = newEngine
         lastCaptureCount = 0
         lastCrashCount = 0
@@ -334,9 +366,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 // The run is over either way, so the mid-level save is obsolete.
                 GameStateStatus.LEVEL_COMPLETE -> {
                     sound.levelComplete(); sound.pauseMusic(); clearSavedGame()
+                    // Spare lives that survived the level carry into the next one.
+                    val survivors = (activeEngine.lives - BASE_LIVES).coerceAtLeast(0)
+                    viewModelScope.launch { preferences.setExtraLives(survivors) }
                 }
                 GameStateStatus.GAME_OVER -> {
                     sound.gameOver(); sound.stopMusic(); clearSavedGame()
+                    // Losing the level burns the whole safety net.
+                    viewModelScope.launch { preferences.setExtraLives(0) }
                 }
                 else -> {}
             }
