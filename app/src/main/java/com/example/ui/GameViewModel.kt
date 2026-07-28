@@ -79,7 +79,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         /** Lives every level starts with before shop-bought spares. */
         const val BASE_LIVES = 3
         /** Star price of one spare life. */
-        const val EXTRA_LIFE_COST = 100
+        const val EXTRA_LIFE_COST = 350
         /** Most spare lives that may be banked at once. */
         const val MAX_EXTRA_LIVES = 3
     }

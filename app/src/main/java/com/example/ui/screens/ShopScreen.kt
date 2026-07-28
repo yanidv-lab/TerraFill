@@ -53,7 +53,7 @@ fun ShopScreen(
     onEquip: (CaterpillarSkin) -> Unit,
     onBack: () -> Unit,
     extraLives: Int = 0,
-    extraLifeCost: Int = 100,
+    extraLifeCost: Int = 350,
     maxExtraLives: Int = 3,
     onBuyExtraLife: () -> Unit = {},
     modifier: Modifier = Modifier
