@@ -909,7 +909,7 @@ class GameEngineTest {
     }
 
     @Test
-    fun `weaver spins a sticky trap onto open ground and it kills on contact`() {
+    fun `weaver spins a sticky trap onto open ground`() {
         val config = LevelConfig(
             levelNumber = 18, gridWidth = 12, gridHeight = 12,
             bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
@@ -930,6 +930,64 @@ class GameEngineTest {
         assertTrue("weaver should have spun a trap", engine.webTraps.isNotEmpty())
         val (tx, ty) = engine.webTraps.first()
         assertEquals("traps only stick to open ground", GridCellState.EMPTY, engine.grid[tx][ty])
+    }
+
+    @Test
+    fun `stepping onto a weaver's web trap crashes the player`() {
+        val config = LevelConfig(
+            levelNumber = 18, gridWidth = 12, gridHeight = 12,
+            bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
+            hunterCount = 0, speederCount = 0, weaverCount = 1,
+            enemySpeed = 0.0, enemyAggression = 1.0,
+            targetPercentage = 99.0, timeLimitSeconds = 300
+        )
+        val engine = GameEngine(config, initialLives = 3)
+        // Park the weaver directly below spawn (player starts at x = width/2 = 6, y = 0)
+        // so a straight walk down lands exactly on the cell it traps.
+        val weaver = engine.enemies.first { it.type == "Weaver" }
+        weaver.x = 6.0
+        weaver.y = 3.0
+        weaver.vx = 0.0
+        weaver.vy = 0.0
+        var guard = 0
+        while (engine.webTraps.isEmpty() && guard++ < 400) engine.tick(0.05)
+        assertEquals(listOf(6 to 3), engine.webTraps)
+
+        // Send the weaver elsewhere so only the trap it left behind - not the spider
+        // itself - is what the player walks into.
+        weaver.x = 1.0
+        weaver.y = 1.0
+
+        // Walk the player straight onto the trapped cell and confirm it is actually
+        // lethal, not merely present on the grid - a trap you can walk through would
+        // be a silent no-op bug the "spins a trap" test alone cannot catch.
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }
+
+        assertEquals("a web trap must cost a life", 2, engine.lives)
+        assertEquals(1, engine.crashCount)
+        assertEquals(GameStateStatus.CRASH_RESET, engine.status)
+    }
+
+    @Test
+    fun `claiming territory over a web trap sweeps it away`() {
+        val engine = newEngine()
+        // Place a stationary weaver's trap at a known interior cell, then send the
+        // weaver elsewhere - the trap persists independently once spun, exactly as it
+        // would once the real spider wanders off across a level.
+        val weaver = Weaver(id = 99, x = 3.0, y = 3.0, vx = 0.0, vy = 0.0)
+        engine.enemies.add(weaver)
+        var guard = 0
+        while (engine.webTraps.isEmpty() && guard++ < 400) engine.tick(0.05)
+        assertEquals(listOf(3 to 3), engine.webTraps)
+        engine.enemies.clear() // out of the way so the whole interior can be captured
+
+        // Claim the entire interior (see "closing a trail captures everything").
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        assertEquals(GridCellState.CAPTURED, engine.grid[3][3])
+        assertTrue("capturing the trap's cell must remove it", engine.webTraps.isEmpty())
     }
 
     @Test
