@@ -315,12 +315,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch { preferences.clearSavedGame() }
         }
 
-        // Spare lives are a ONE-LEVEL boost. A resumed run already carries the spare
-        // inside its saved life count, so it must not be charged again.
-        when {
-            resume != null -> spareLivesInPlay = 0
-            reuseSpareLives -> newEngine.grantExtraLives(spareLivesInPlay)
-            else -> withdrawSpareLives(config.levelNumber)
+        // Spare lives are a ONE-LEVEL boost, withdrawn whenever a level genuinely
+        // begins - a fresh start or a resume alike. A resumed run's saved life count
+        // already reflects any spare granted BEFORE the exit (the save is just a
+        // snapshot of active.lives at that moment), so withdrawing again cannot
+        // double-grant that one - takeAllExtraLives empties the bank atomically, so
+        // there is nothing left in it to take a second time. What this DOES catch is
+        // a life bought AFTER the exit and before hitting Resume: previously that
+        // purchase was silently discarded, which is exactly the moment a player is
+        // most likely to buy one - mid-struggle, right before continuing.
+        if (reuseSpareLives) {
+            newEngine.grantExtraLives(spareLivesInPlay)
+        } else {
+            withdrawSpareLives(config.levelNumber)
         }
 
         updateUiStateFromEngine(newEngine)
