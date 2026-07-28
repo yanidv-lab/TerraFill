@@ -41,7 +41,7 @@ import com.example.ui.skins.SkinEffect
 import com.example.ui.theme.*
 
 /**
- * SKINS shop: spend stars earned from levels on caterpillar colourways. Each card
+ * STORE: spend stars earned from levels on caterpillar colourways. Each card
  * previews the actual hero art recoloured exactly as it will look in play.
  */
 @Composable
@@ -77,7 +77,7 @@ fun ShopScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            SubScreenHeader(title = "SKINS", onBack = onBack)
+            SubScreenHeader(title = "STORE", onBack = onBack)
 
             // Star balance
             Row(

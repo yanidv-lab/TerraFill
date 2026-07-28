@@ -874,6 +874,45 @@ class GameEngineTest {
         assertEquals(4.0, engine.enemies.first().y, 1e-9)
     }
 
+    @Test
+    fun `restoring a snapshot with an exported roster replaces whatever enemies were there with the exact ones saved`() {
+        val engine = newEngine()
+        engine.enemies.clear()
+        engine.enemies.add(Bouncer(1, 3.0, 4.0, 1.5, -0.5))
+        engine.enemies.add(Crawler(2, 1.0, 6.0, 0.0, 2.0))
+        val mask = engine.exportCapturedMask()
+        val savedEnemies = engine.exportEnemies()
+
+        // Stand in for whatever a fresh spawn would have produced, deliberately at a
+        // different position and a different count - restoring must clear this, not
+        // merely leave it in place or append to it.
+        val resumed = newEngine()
+        resumed.enemies.clear()
+        resumed.enemies.add(Bouncer(99, 8.0, 8.0, 0.0, 0.0))
+        resumed.restoreSnapshot(mask, savedScore = 0, savedLives = 3, savedTime = 50.0, savedEnemies = savedEnemies)
+
+        assertEquals("exact enemy count must be restored, not a fresh roster", 2, resumed.enemies.size)
+        val byType = resumed.enemies.associateBy { it.type }
+        assertEquals(3.0, byType.getValue("Bouncer").x, 1e-9)
+        assertEquals(4.0, byType.getValue("Bouncer").y, 1e-9)
+        assertEquals(1.0, byType.getValue("Crawler").x, 1e-9)
+        assertEquals(6.0, byType.getValue("Crawler").y, 1e-9)
+    }
+
+    @Test
+    fun `restoring without a saved roster keeps the fresh spawn, so an older save still restores cleanly`() {
+        val engine = GameEngine(LevelConfig.getConfig(1))
+        val freshCount = engine.enemies.size
+        val mask = engine.exportCapturedMask()
+
+        engine.restoreSnapshot(mask, savedScore = 0, savedLives = 3, savedTime = 50.0) // no savedEnemies arg
+
+        assertEquals(
+            "a save made before enemy persistence existed must still restore cleanly",
+            freshCount, engine.enemies.size
+        )
+    }
+
     // ---------------------------------------------------------------- new enemy roster
 
     @Test
@@ -909,7 +948,7 @@ class GameEngineTest {
     }
 
     @Test
-    fun `weaver spins a sticky trap onto open ground and it kills on contact`() {
+    fun `weaver spins a sticky trap onto open ground`() {
         val config = LevelConfig(
             levelNumber = 18, gridWidth = 12, gridHeight = 12,
             bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
@@ -930,6 +969,64 @@ class GameEngineTest {
         assertTrue("weaver should have spun a trap", engine.webTraps.isNotEmpty())
         val (tx, ty) = engine.webTraps.first()
         assertEquals("traps only stick to open ground", GridCellState.EMPTY, engine.grid[tx][ty])
+    }
+
+    @Test
+    fun `stepping onto a weaver's web trap crashes the player`() {
+        val config = LevelConfig(
+            levelNumber = 18, gridWidth = 12, gridHeight = 12,
+            bouncerCount = 0, crawlerCount = 0, jumperCount = 0,
+            hunterCount = 0, speederCount = 0, weaverCount = 1,
+            enemySpeed = 0.0, enemyAggression = 1.0,
+            targetPercentage = 99.0, timeLimitSeconds = 300
+        )
+        val engine = GameEngine(config, initialLives = 3)
+        // Park the weaver directly below spawn (player starts at x = width/2 = 6, y = 0)
+        // so a straight walk down lands exactly on the cell it traps.
+        val weaver = engine.enemies.first { it.type == "Weaver" }
+        weaver.x = 6.0
+        weaver.y = 3.0
+        weaver.vx = 0.0
+        weaver.vy = 0.0
+        var guard = 0
+        while (engine.webTraps.isEmpty() && guard++ < 400) engine.tick(0.05)
+        assertEquals(listOf(6 to 3), engine.webTraps)
+
+        // Send the weaver elsewhere so only the trap it left behind - not the spider
+        // itself - is what the player walks into.
+        weaver.x = 1.0
+        weaver.y = 1.0
+
+        // Walk the player straight onto the trapped cell and confirm it is actually
+        // lethal, not merely present on the grid - a trap you can walk through would
+        // be a silent no-op bug the "spins a trap" test alone cannot catch.
+        engine.setDirection(Direction.DOWN)
+        repeat(3) { engine.step() }
+
+        assertEquals("a web trap must cost a life", 2, engine.lives)
+        assertEquals(1, engine.crashCount)
+        assertEquals(GameStateStatus.CRASH_RESET, engine.status)
+    }
+
+    @Test
+    fun `claiming territory over a web trap sweeps it away`() {
+        val engine = newEngine()
+        // Place a stationary weaver's trap at a known interior cell, then send the
+        // weaver elsewhere - the trap persists independently once spun, exactly as it
+        // would once the real spider wanders off across a level.
+        val weaver = Weaver(id = 99, x = 3.0, y = 3.0, vx = 0.0, vy = 0.0)
+        engine.enemies.add(weaver)
+        var guard = 0
+        while (engine.webTraps.isEmpty() && guard++ < 400) engine.tick(0.05)
+        assertEquals(listOf(3 to 3), engine.webTraps)
+        engine.enemies.clear() // out of the way so the whole interior can be captured
+
+        // Claim the entire interior (see "closing a trail captures everything").
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        assertEquals(GridCellState.CAPTURED, engine.grid[3][3])
+        assertTrue("capturing the trap's cell must remove it", engine.webTraps.isEmpty())
     }
 
     @Test

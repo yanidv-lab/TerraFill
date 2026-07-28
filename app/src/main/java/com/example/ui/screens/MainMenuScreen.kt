@@ -107,7 +107,7 @@ fun MainMenuScreen(
                 modifier = Modifier.testTag("options_button")
             )
             MenuActionButton(
-                label = "SKINS",
+                label = "STORE",
                 icon = Icons.Default.Palette,
                 accent = Color(0xFFB14CFF),
                 onClick = onShop,

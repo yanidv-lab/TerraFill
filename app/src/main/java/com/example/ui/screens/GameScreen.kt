@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
@@ -270,6 +271,102 @@ private fun DrawScope.drawSkinEffect(
                 }
             }
         }
+    }
+}
+
+/**
+ * The same skin flourish as [drawSkinEffect], woven along the trail's own arc length
+ * (via [PathMeasure]) rather than relative to the body - so a premium skin's identity
+ * shows up in the territory being claimed, not only on the caterpillar itself.
+ */
+private fun DrawScope.drawTrailEffect(
+    effect: SkinEffect,
+    accent: Color,
+    path: Path,
+    cellMin: Float,
+    now: Long
+) {
+    if (effect == SkinEffect.NONE) return
+    val measure = PathMeasure().apply { setPath(path, false) }
+    val length = measure.length
+    if (length < cellMin * 0.5f) return // too short a trail for a path-length effect to read
+
+    when (effect) {
+        SkinEffect.GLOW -> {
+            // A wider, breathing halo riding the whole trail beneath the core line.
+            val pulse = 0.7f + 0.3f * sin(now / 260.0).toFloat()
+            drawPath(
+                path, accent,
+                alpha = 0.35f * pulse,
+                style = Stroke(width = cellMin * 1.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
+        SkinEffect.SPARKLE -> {
+            // Twinkles fixed at points along the trail, each on its own clock so they
+            // read as catching the light rather than blinking in unison.
+            val spacing = cellMin * 1.6f
+            var d = 0f
+            var i = 0
+            while (d < length) {
+                val p = measure.getPosition(d)
+                val life = ((sin(now / 900.0 + i * 1.7) + 1.0) / 2.0).toFloat()
+                val r = cellMin * 0.09f * (0.4f + life)
+                drawLine(Color.White.copy(alpha = life * 0.85f), p - Offset(r, 0f), p + Offset(r, 0f), cellMin * 0.045f, cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = life * 0.85f), p - Offset(0f, r), p + Offset(0f, r), cellMin * 0.045f, cap = StrokeCap.Round)
+                d += spacing
+                i++
+            }
+        }
+        SkinEffect.EMBER -> {
+            // Embers lift off several points along the trail, not just the body, so a
+            // long claimed line still feels like it is smouldering.
+            val spacing = cellMin * 2.4f
+            var d = 0f
+            var i = 0
+            while (d < length) {
+                val base = measure.getPosition(d)
+                val rise = ((now / 750.0 + i * 0.31) % 1.0).toFloat()
+                val sway = sin(now / 320.0 + i * 1.3).toFloat() * cellMin * 0.12f
+                val p = base + Offset(sway, -rise * cellMin * 1.1f)
+                drawCircle(
+                    color = lerpColor(accent, Color(0xFFFFF176), rise),
+                    radius = cellMin * 0.08f * (1f - rise * 0.6f),
+                    center = p,
+                    alpha = (1f - rise) * 0.85f
+                )
+                d += spacing
+                i++
+            }
+        }
+        SkinEffect.SUNGLASSES -> {
+            // Sun-glint beads skimming along the trail together - a beach-holiday
+            // shimmer rather than a single sweeping shine.
+            val beadCount = 4
+            val travel = ((now / 1100.0) % 1.0).toFloat()
+            for (k in 0 until beadCount) {
+                val d = ((travel + k / beadCount.toFloat()) % 1f) * length
+                val p = measure.getPosition(d)
+                drawCircle(accent.copy(alpha = 0.5f), cellMin * 0.2f, p)
+                drawCircle(Color.White.copy(alpha = 0.8f), cellMin * 0.11f, p)
+            }
+        }
+        SkinEffect.GLOSS -> {
+            // A bright highlight gliding the length of the trail, mirroring the sweep
+            // drawn over the body.
+            val sweep = ((now / 1600.0) % 1.0).toFloat()
+            val windowLen = length * 0.18f
+            val windowStart = sweep * (length + windowLen) - windowLen
+            val samples = 10
+            for (s in 0 until samples) {
+                val d = windowStart + windowLen * s / (samples - 1f)
+                if (d < 0f || d > length) continue
+                val p = measure.getPosition(d)
+                val t = s / (samples - 1f)
+                val edge = 1f - kotlin.math.abs(t - 0.5f) * 2f
+                drawCircle(Color.White.copy(alpha = edge * 0.75f), cellMin * 0.22f * edge, p)
+            }
+        }
+        else -> Unit
     }
 }
 
@@ -1314,6 +1411,13 @@ fun Playfield(
                     drawPath(trailPath, skin.trailColor, alpha = 0.25f, style = stroke(cellMin * 0.9f))
                     drawPath(trailPath, skin.trailColor, alpha = 0.9f, style = stroke(cellMin * 0.45f))
                     drawPath(trailPath, Color.White, alpha = 0.85f, style = stroke(cellMin * 0.15f))
+                    drawTrailEffect(
+                        effect = skin.effect,
+                        accent = skin.trailColor,
+                        path = trailPath,
+                        cellMin = cellMin,
+                        now = now
+                    )
                 }
 
                 // ---------- 4b. Power-ups on the field ----------

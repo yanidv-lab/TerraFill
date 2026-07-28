@@ -134,40 +134,58 @@ fun NavGraph(
             val levelNumber = backStackEntry.arguments?.getInt("levelNumber") ?: 1
             val gameState by viewModel.uiState.collectAsStateWithLifecycle()
 
-            // Initialize level once on navigate
+            // Starts the level, then reacts to its terminal status - both in ONE
+            // effect, in this order, so the status-watch can never act on a status
+            // left over from whatever the player was doing before this screen
+            // existed. viewModel.uiState is a single flow shared across the whole
+            // app: retrying a failed level, or advancing to the next one, re-enters
+            // this SAME composable type with the PREVIOUS run's terminal status
+            // (LEVEL_COMPLETE / GAME_OVER) still sitting in it. startLevel() runs to
+            // completion (it does not suspend) before the flow below is even
+            // subscribed to, so the first value this collector observes is already
+            // this level's fresh RUNNING state - never the stale one. A second,
+            // separate LaunchedEffect keyed on the Compose State snapshot of that
+            // same flow does not have this guarantee: recomposition can hand it the
+            // stale status before startLevel()'s update propagates, firing an
+            // immediate, spurious navigation back to the screen the player just
+            // left - which is what made RETRY / NEXT LEVEL / re-entering a level
+            // after a purchase need a second tap to actually stick.
             LaunchedEffect(levelNumber) {
                 viewModel.startLevel(levelNumber)
-            }
-
-            // Route to end-game screens when simulation state changes
-            LaunchedEffect(gameState.status) {
-                when (gameState.status) {
-                    GameStateStatus.LEVEL_COMPLETE -> {
-                        navController.navigate(
-                            Screen.LevelComplete.createRoute(
-                                levelNumber = gameState.levelNumber,
-                                score = gameState.score,
-                                timeRemaining = gameState.timeRemainingSeconds.toInt(),
-                                stars = gameState.stars,
-                                earned = gameState.starsEarned
-                            )
-                        ) {
-                            popUpTo(Screen.MainMenu.route) // Clean game from backstack
+                var handledTerminal = false
+                viewModel.uiState.collect { state ->
+                    if (state.levelNumber != levelNumber) return@collect
+                    if (handledTerminal) return@collect
+                    when (state.status) {
+                        GameStateStatus.LEVEL_COMPLETE -> {
+                            handledTerminal = true
+                            navController.navigate(
+                                Screen.LevelComplete.createRoute(
+                                    levelNumber = state.levelNumber,
+                                    score = state.score,
+                                    timeRemaining = state.timeRemainingSeconds.toInt(),
+                                    stars = state.stars,
+                                    earned = state.starsEarned
+                                )
+                            ) {
+                                popUpTo(Screen.MainMenu.route) // Clean game from backstack
+                            }
                         }
-                    }
-                    GameStateStatus.GAME_OVER -> {
-                        navController.navigate(
-                            Screen.GameOver.createRoute(
-                                levelNumber = gameState.levelNumber,
-                                score = gameState.score,
-                                captured = gameState.capturedPercentage.toInt(),
-                                target = gameState.targetPercentage.toInt()
-                            )
-                        ) {
-                            popUpTo(Screen.MainMenu.route) // Clean game from backstack
+                        GameStateStatus.GAME_OVER -> {
+                            handledTerminal = true
+                            navController.navigate(
+                                Screen.GameOver.createRoute(
+                                    levelNumber = state.levelNumber,
+                                    score = state.score,
+                                    captured = state.capturedPercentage.toInt(),
+                                    target = state.targetPercentage.toInt()
+                                )
+                            ) {
+                                popUpTo(Screen.MainMenu.route) // Clean game from backstack
+                            }
                         }
+                        else -> {}
                     }
-                    else -> {}
                 }
             }
 

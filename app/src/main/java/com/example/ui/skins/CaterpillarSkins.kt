@@ -67,7 +67,15 @@ data class CaterpillarSkin(
         get() = if (hueShift == 0f && saturation == 1f) null else buildFilter(hueShift, saturation)
 
     companion object {
-        /** The full catalogue, cheapest first. [ALL].first() is always owned. */
+        /**
+         * The full catalogue, cheapest first. [ALL].first() is the free default.
+         *
+         * Trimmed to five premium colourways, each carrying a distinct [SkinEffect] -
+         * one skin per non-NONE effect value, so no two purchasable skins compete for
+         * the same flourish. Every effect renders both on the body ([drawSkinEffect])
+         * and along the trail itself ([drawTrailEffect]), so the identity shows up in
+         * the territory being claimed, not only on the caterpillar.
+         */
         val ALL: List<CaterpillarSkin> = listOf(
             CaterpillarSkin(
                 id = "classic", displayName = "JUNGLE", cost = 0,
@@ -75,78 +83,35 @@ data class CaterpillarSkin(
                 blurb = "The original."
             ),
             CaterpillarSkin(
-                id = "amber", displayName = "AMBER", cost = 50,
-                hueShift = -60f, saturation = 1.15f,
-                swatch = Color(0xFFE8C33A), trailColor = Color(0xFFFFD54A),
-                blurb = "Warm honey glow."
-            ),
-            CaterpillarSkin(
-                id = "teal", displayName = "LAGOON", cost = 140,
-                hueShift = 55f,
-                swatch = Color(0xFF3FBFA8), trailColor = Color(0xFF3FE8C8),
-                blurb = "Cool shallow water."
-            ),
-            CaterpillarSkin(
-                id = "azure", displayName = "AZURE", cost = 320,
-                hueShift = 115f,
-                swatch = Color(0xFF4A8FE0), trailColor = Color(0xFF4FA8FF),
-                blurb = "Deep sky blue."
-            ),
-            CaterpillarSkin(
-                id = "violet", displayName = "ORCHID", cost = 600,
-                hueShift = 175f,
-                swatch = Color(0xFFB14CFF), trailColor = Color(0xFFC96BFF),
-                blurb = "Rare jungle bloom."
-            ),
-            CaterpillarSkin(
-                id = "miami", displayName = "MIAMI", cost = 800,
+                id = "miami", displayName = "MIAMI", cost = 1000,
                 hueShift = 30f, saturation = 1.5f,
                 swatch = Color(0xFF25D6C0), trailColor = Color(0xFFFF5FA2),
                 effect = SkinEffect.SUNGLASSES,
                 blurb = "Beach shades. Permanent holiday."
             ),
             CaterpillarSkin(
-                id = "crimson", displayName = "CRIMSON", cost = 1000,
-                hueShift = 235f, saturation = 1.1f,
-                swatch = Color(0xFFE04B4B), trailColor = Color(0xFFFF5A5A),
-                blurb = "Danger red."
-            ),
-            CaterpillarSkin(
-                id = "coated", displayName = "LACQUER", cost = 1300,
-                hueShift = 200f, saturation = 0.75f,
-                swatch = Color(0xFF7E57C2), trailColor = Color(0xFFB39DDB),
-                effect = SkinEffect.GLOSS,
-                blurb = "Glossy coated shell."
-            ),
-            CaterpillarSkin(
-                id = "shadow", displayName = "SHADOW", cost = 1600,
-                hueShift = 1f, saturation = 0.15f,
-                swatch = Color(0xFF7A7F85), trailColor = Color(0xFFBFC7CF),
-                blurb = "Colour drained away."
-            ),
-            CaterpillarSkin(
-                id = "neon", displayName = "NEON", cost = 1900,
-                hueShift = 150f, saturation = 2.0f,
-                swatch = Color(0xFF00E5FF), trailColor = Color(0xFF00F0FF),
-                effect = SkinEffect.GLOW,
-                blurb = "Radiates its own light."
-            ),
-            CaterpillarSkin(
-                id = "frost", displayName = "GLACIER", cost = 2200,
+                id = "frost", displayName = "GLACIER", cost = 1500,
                 hueShift = 130f, saturation = 0.45f,
                 swatch = Color(0xFFB3E5FC), trailColor = Color(0xFFE1F5FE),
                 effect = SkinEffect.SPARKLE,
                 blurb = "Iced over, catching the light."
             ),
             CaterpillarSkin(
-                id = "gold", displayName = "GOLDEN", cost = 2600,
+                id = "neon", displayName = "NEON", cost = 2200,
+                hueShift = 150f, saturation = 2.0f,
+                swatch = Color(0xFF00E5FF), trailColor = Color(0xFF00F0FF),
+                effect = SkinEffect.GLOW,
+                blurb = "Radiates its own light."
+            ),
+            CaterpillarSkin(
+                id = "gold", displayName = "GOLDEN", cost = 3200,
                 hueShift = -48f, saturation = 1.6f,
                 swatch = Color(0xFFFFC400), trailColor = Color(0xFFFFD700),
                 effect = SkinEffect.GLOSS,
                 blurb = "Solid gold. Obviously."
             ),
             CaterpillarSkin(
-                id = "ember", displayName = "MAGMA", cost = 3200,
+                id = "ember", displayName = "MAGMA", cost = 4600,
                 hueShift = -35f, saturation = 1.9f,
                 swatch = Color(0xFFFF6D00), trailColor = Color(0xFFFF7A18),
                 effect = SkinEffect.EMBER,

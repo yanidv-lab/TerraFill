@@ -121,10 +121,14 @@ class GameEngine(
         private set
 
     private var nextEnemyId = 1
-    private val broodRandom = Random(levelConfig.levelNumber * 7717 + 3)
+    // Seeded from the clock, not the level number: a level-derived seed made every
+    // attempt at a given level - including an immediate retry - spawn enemies and
+    // power-ups in exactly the same places doing exactly the same thing, so a retry
+    // never felt different from the run that just failed.
+    private val broodRandom = Random(System.nanoTime())
     private var powerUpSpawnTimer = POWERUP_FIRST_SPAWN
     private var powerUpIdCounter = 1
-    private val powerUpRandom = Random(levelConfig.levelNumber * 97 + 7)
+    private val powerUpRandom = Random(System.nanoTime() xor 0x5DEECE66DL)
 
     /** Star rating (0-3) for the level, valid once status is LEVEL_COMPLETE. */
     var stars = 0
@@ -221,7 +225,10 @@ class GameEngine(
      */
     private fun initializeEnemies() {
         enemies.clear()
-        val random = Random(levelConfig.levelNumber * 31)
+        // Seeded from the clock: a level-derived seed made every attempt at a level -
+        // fresh start or immediate retry alike - place every enemy at the exact same
+        // spot doing the exact same thing, so a retry never felt like a new attempt.
+        val random = Random(System.nanoTime() xor 0x2545F4914F6CDD1DL)
         var idCounter = 1
 
         // Spawn Bouncers
@@ -871,6 +878,42 @@ class GameEngine(
     }
 
     /**
+     * Serializes each live enemy's type and kinematic state as "Type,x,y,vx,vy"
+     * records joined by ';', for mid-level saves - so a resumed run finds the exact
+     * spiders it left behind (same positions, same count), not a freshly regenerated
+     * roster. Per-type timers (a Weaver's spin charge, a Spitter's aim, a
+     * Broodmother's brood clock) are not carried over; they simply restart their
+     * cycle from scratch, which is unnoticeable on resume and keeps the format simple.
+     */
+    fun exportEnemies(): String =
+        enemies.joinToString(";") { "${it.type},${it.x},${it.y},${it.vx},${it.vy}" }
+
+    /**
+     * Rebuilds one enemy of [type] with the given kinematic state, using this level's
+     * aggression for the types that read it - the same value a fresh spawn of that
+     * type would have received. Returns null for an unrecognised type, so a corrupt
+     * or future-format record is simply dropped rather than crashing the restore.
+     */
+    private fun buildEnemy(type: String, id: Int, x: Double, y: Double, vx: Double, vy: Double): Enemy? {
+        val aggression = levelConfig.enemyAggression
+        return when (type) {
+            "Bouncer" -> Bouncer(id, x, y, vx, vy)
+            "Crawler" -> Crawler(id, x, y, vx, vy)
+            "Jumper" -> Jumper(id, x, y, vx, vy, aggression = aggression)
+            "Hunter" -> Hunter(id, x, y, vx, vy, aggression = aggression)
+            "Eater" -> Eater(id, x, y, vx, vy)
+            "Spitter" -> Spitter(id, x, y, vx, vy, aggression = aggression)
+            "Speeder" -> Speeder(id, x, y, vx, vy)
+            "Weaver" -> Weaver(id, x, y, vx, vy, aggression = aggression)
+            "Hornet" -> Hornet(id, x, y, vx, vy)
+            "Phantom" -> Phantom(id, x, y, vx, vy)
+            "Broodmother" -> Broodmother(id, x, y, vx, vy, aggression = aggression)
+            "Spiderling" -> Spiderling(id, x, y, vx, vy)
+            else -> null
+        }
+    }
+
+    /**
      * Adds shop-bought spare lives to a run that has already begun.
      *
      * The bank of spare lives lives in storage and is read asynchronously, so it can
@@ -890,10 +933,21 @@ class GameEngine(
     /**
      * Restores a mid-level save produced by [exportCapturedMask]: the claimed board,
      * score, lives and remaining time. The player returns to the safe spawn with no
-     * trail and enemies keep their deterministic starting positions, so a resumed run
-     * is never mid-collision. Ignores a mask that does not match this board.
+     * trail. Ignores a mask that does not match this board.
+     *
+     * [savedEnemies], from [exportEnemies], replaces the freshly-spawned roster with
+     * the actual spiders the player left behind - same positions, same count. Left
+     * blank (the default), the fresh roster is kept as-is, only relocated if the
+     * board changed underneath it; this is what lets an older save without an enemy
+     * field still restore cleanly.
      */
-    fun restoreSnapshot(capturedMask: String, savedScore: Int, savedLives: Int, savedTime: Double) {
+    fun restoreSnapshot(
+        capturedMask: String,
+        savedScore: Int,
+        savedLives: Int,
+        savedTime: Double,
+        savedEnemies: String = ""
+    ) {
         if (capturedMask.length != width * height) return
 
         var i = 0
@@ -926,8 +980,30 @@ class GameEngine(
         pathHistory.addFirst(Pair(playerX, playerY))
         activeWebs.clear()
         webs = emptyList()
-        // Enemies were placed for a fresh board; on a restored one their spawn may
-        // now sit inside reclaimed land, where they would be walled in forever.
+
+        // Rebuild the exact roster the player left behind, if the save carries one.
+        if (savedEnemies.isNotEmpty()) {
+            val restored = mutableListOf<Enemy>()
+            for (record in savedEnemies.split(";")) {
+                if (record.isBlank()) continue
+                val parts = record.split(",")
+                if (parts.size != 5) continue
+                val x = parts[1].toDoubleOrNull()
+                val y = parts[2].toDoubleOrNull()
+                val vx = parts[3].toDoubleOrNull()
+                val vy = parts[4].toDoubleOrNull()
+                if (x == null || y == null || vx == null || vy == null) continue
+                restored.add(buildEnemy(parts[0], nextEnemyId++, x, y, vx, vy) ?: continue)
+            }
+            if (restored.isNotEmpty()) {
+                enemies.clear()
+                enemies.addAll(restored)
+            }
+        }
+
+        // Whichever roster is now in play - restored or the fresh one - may have a
+        // spawn point sitting inside reclaimed land, where it would be walled in
+        // forever, since the board can have changed shape or grown since that spawn.
         relocateTrappedEnemies()
         gridVersion++
         recalculateCapturedPercentage()

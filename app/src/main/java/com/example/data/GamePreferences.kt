@@ -20,8 +20,10 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
  * pick the run back up instead of losing it.
  *
  * The claimed territory is stored as a compact '1'/'0' mask in column-major order.
- * Enemies are not serialized: they respawn at their deterministic level positions,
- * which keeps the save tiny and the resumed run fair.
+ * Enemies are stored too (see [com.example.engine.GameEngine.exportEnemies]), so a
+ * resumed run finds the exact spiders it left behind - same positions, same count -
+ * rather than a freshly regenerated roster. [enemies] defaults to blank so a save
+ * written before this field existed still deserializes and restores cleanly.
  */
 data class SavedGame(
     val level: Int,
@@ -30,7 +32,8 @@ data class SavedGame(
     val timeRemaining: Double,
     val gridWidth: Int,
     val gridHeight: Int,
-    val capturedMask: String
+    val capturedMask: String,
+    val enemies: String = ""
 )
 
 /**
@@ -76,6 +79,7 @@ class GamePreferences(context: Context) {
         private val SAVE_WIDTH = intPreferencesKey("save_width")
         private val SAVE_HEIGHT = intPreferencesKey("save_height")
         private val SAVE_MASK = stringPreferencesKey("save_mask")
+        private val SAVE_ENEMIES = stringPreferencesKey("save_enemies")
     }
 
     /** Every star ever earned from completing levels (replays keep adding). */
@@ -181,7 +185,8 @@ class GamePreferences(context: Context) {
                 timeRemaining = preferences[SAVE_TIME] ?: 0.0,
                 gridWidth = w,
                 gridHeight = h,
-                capturedMask = mask
+                capturedMask = mask,
+                enemies = preferences[SAVE_ENEMIES] ?: ""
             )
         }
     }
@@ -196,6 +201,7 @@ class GamePreferences(context: Context) {
             preferences[SAVE_WIDTH] = save.gridWidth
             preferences[SAVE_HEIGHT] = save.gridHeight
             preferences[SAVE_MASK] = save.capturedMask
+            preferences[SAVE_ENEMIES] = save.enemies
         }
     }
 
@@ -207,6 +213,7 @@ class GamePreferences(context: Context) {
             preferences.remove(SAVE_LIVES)
             preferences.remove(SAVE_TIME)
             preferences.remove(SAVE_WIDTH)
+            preferences.remove(SAVE_ENEMIES)
             preferences.remove(SAVE_HEIGHT)
             preferences.remove(SAVE_MASK)
         }
