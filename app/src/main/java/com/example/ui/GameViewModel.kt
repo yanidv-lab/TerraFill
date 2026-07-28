@@ -202,7 +202,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             timeRemaining = active.timeRemainingSeconds,
             gridWidth = active.width,
             gridHeight = active.height,
-            capturedMask = active.exportCapturedMask()
+            capturedMask = active.exportCapturedMask(),
+            enemies = active.exportEnemies()
         )
         viewModelScope.launch { preferences.saveGame(snapshot) }
     }
@@ -309,7 +310,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 capturedMask = resume.capturedMask,
                 savedScore = resume.score,
                 savedLives = resume.lives,
-                savedTime = resume.timeRemaining
+                savedTime = resume.timeRemaining,
+                savedEnemies = resume.enemies
             )
             restoredCurrentLevel = true
             viewModelScope.launch { preferences.clearSavedGame() }

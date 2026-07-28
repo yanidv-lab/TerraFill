@@ -874,6 +874,45 @@ class GameEngineTest {
         assertEquals(4.0, engine.enemies.first().y, 1e-9)
     }
 
+    @Test
+    fun `restoring a snapshot with an exported roster replaces whatever enemies were there with the exact ones saved`() {
+        val engine = newEngine()
+        engine.enemies.clear()
+        engine.enemies.add(Bouncer(1, 3.0, 4.0, 1.5, -0.5))
+        engine.enemies.add(Crawler(2, 1.0, 6.0, 0.0, 2.0))
+        val mask = engine.exportCapturedMask()
+        val savedEnemies = engine.exportEnemies()
+
+        // Stand in for whatever a fresh spawn would have produced, deliberately at a
+        // different position and a different count - restoring must clear this, not
+        // merely leave it in place or append to it.
+        val resumed = newEngine()
+        resumed.enemies.clear()
+        resumed.enemies.add(Bouncer(99, 8.0, 8.0, 0.0, 0.0))
+        resumed.restoreSnapshot(mask, savedScore = 0, savedLives = 3, savedTime = 50.0, savedEnemies = savedEnemies)
+
+        assertEquals("exact enemy count must be restored, not a fresh roster", 2, resumed.enemies.size)
+        val byType = resumed.enemies.associateBy { it.type }
+        assertEquals(3.0, byType.getValue("Bouncer").x, 1e-9)
+        assertEquals(4.0, byType.getValue("Bouncer").y, 1e-9)
+        assertEquals(1.0, byType.getValue("Crawler").x, 1e-9)
+        assertEquals(6.0, byType.getValue("Crawler").y, 1e-9)
+    }
+
+    @Test
+    fun `restoring without a saved roster keeps the fresh spawn, so an older save still restores cleanly`() {
+        val engine = GameEngine(LevelConfig.getConfig(1))
+        val freshCount = engine.enemies.size
+        val mask = engine.exportCapturedMask()
+
+        engine.restoreSnapshot(mask, savedScore = 0, savedLives = 3, savedTime = 50.0) // no savedEnemies arg
+
+        assertEquals(
+            "a save made before enemy persistence existed must still restore cleanly",
+            freshCount, engine.enemies.size
+        )
+    }
+
     // ---------------------------------------------------------------- new enemy roster
 
     @Test
