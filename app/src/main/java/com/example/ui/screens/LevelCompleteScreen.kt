@@ -133,7 +133,7 @@ fun LevelCompleteScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "MISSION ACCOMPLISHED",
+                    text = "TERRITORY CLAIMED!",
                     color = NeonGreen,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
@@ -142,7 +142,7 @@ fun LevelCompleteScreen(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = "GRID SYSTEM INTEGRITY SECURED",
+                    text = "THE SPIDERS HAVE RETREATED",
                     color = NeonCyan,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -176,7 +176,7 @@ fun LevelCompleteScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "STAGE $levelNumber",
+                            text = "LEVEL $levelNumber",
                             color = NeonYellow,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
@@ -317,7 +317,7 @@ fun LevelCompleteScreen(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = "NEXT MISSION",
+                                text = "NEXT LEVEL",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace
@@ -372,7 +372,7 @@ fun LevelCompleteScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "RETURN TO CONTROL CENTER",
+                            text = "BACK TO THE JUNGLE",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace

@@ -1,34 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monochrome/themed-icon layer (Android 13+ "themed icons"). The system ignores
+  this layer's colour and renders it as a single tinted silhouette, so only the
+  shape matters: a simplified caterpillar silhouette matching the real launcher
+  art (ic_launcher_fg.png), not a literal trace of it.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Already Captured territory frame (Neon Cyan) -->
+    <!-- Antennae -->
     <path
-        android:strokeColor="#00E5FF"
+        android:strokeColor="#FF000000"
         android:strokeWidth="3"
-        android:fillColor="#1500E5FF"
-        android:pathData="M24,24 h60 v60 h-60 z" />
-
-    <!-- Active Trail Drawing (Neon Magenta) -->
-    <path
-        android:strokeColor="#FF007F"
-        android:strokeWidth="3.5"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M24,54 h24 v18" />
-
-    <!-- The Player Cursor (Neon Yellow-Green) -->
+        android:pathData="M25,46 C21,38 17,34 13,31" />
     <path
-        android:fillColor="#39FF14"
-        android:pathData="M48,72 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M33,46 C36,38 39,34 42,31" />
 
-    <!-- Secondary decorative grid details -->
-    <path
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="1"
-        android:pathData="M24,39 h60 M24,54 h60 M24,69 h60 M39,24 v60 M54,24 v60 M69,24 v60"
-        android:strokeAlpha="0.15" />
+    <!-- Body segments, head to tail -->
+    <path android:fillColor="#FF000000" android:pathData="M28,58 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0" />
+    <path android:fillColor="#FF000000" android:pathData="M43,61 m-10.5,0 a10.5,10.5 0 1,0 21,0 a10.5,10.5 0 1,0 -21,0" />
+    <path android:fillColor="#FF000000" android:pathData="M58,63 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+    <path android:fillColor="#FF000000" android:pathData="M72,63 m-9.5,0 a9.5,9.5 0 1,0 19,0 a9.5,9.5 0 1,0 -19,0" />
+    <path android:fillColor="#FF000000" android:pathData="M85,61 m-8.5,0 a8.5,8.5 0 1,0 17,0 a8.5,8.5 0 1,0 -17,0" />
 </vector>
