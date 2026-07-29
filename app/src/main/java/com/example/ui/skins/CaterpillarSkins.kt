@@ -125,6 +125,27 @@ data class CaterpillarSkin(
         fun byId(id: String?): CaterpillarSkin = ALL.firstOrNull { it.id == id } ?: DEFAULT
 
         /**
+         * Prices of skins that used to be purchasable and have since been dropped
+         * from [ALL] (the catalogue trim from 13 colourways down to 5 premium ones).
+         * A player who bought one of these still has its id in their owned set, and
+         * its cost must keep counting against their star balance - otherwise the
+         * stars they spent on it silently reappear as spendable currency the moment
+         * the catalogue changes underneath them.
+         */
+        private val LEGACY_COSTS: Map<String, Int> = mapOf(
+            "amber" to 50,
+            "teal" to 140,
+            "azure" to 320,
+            "violet" to 600,
+            "crimson" to 1000,
+            "coated" to 1300,
+            "shadow" to 1600
+        )
+
+        /** The price an owned skin id cost, whether or not it is still purchasable. */
+        fun costFor(id: String): Int = ALL.firstOrNull { it.id == id }?.cost ?: LEGACY_COSTS[id] ?: 0
+
+        /**
          * Standard hue-rotation colour matrix (the same maths CSS `hue-rotate` uses),
          * optionally pre-multiplied by a saturation matrix.
          */

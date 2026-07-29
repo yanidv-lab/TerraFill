@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -79,7 +80,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         /** Lives every level starts with before shop-bought spares. */
         const val BASE_LIVES = 3
         /** Star price of one spare life. */
-        const val EXTRA_LIFE_COST = 100
+        const val EXTRA_LIFE_COST = 350
         /** Most spare lives that may be banked at once. */
         const val MAX_EXTRA_LIVES = 3
     }
@@ -124,7 +125,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // --- Cosmetic skins bought with stars ---
     val ownedSkins: StateFlow<Set<String>> = preferences.ownedSkins
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    // Resolved through byId so a skin retired from the catalogue (a player still has
+    // its id persisted as their selection) falls back to the default everywhere this
+    // is read, instead of only where CaterpillarSkin.byId happens to be called again.
     val selectedSkin: StateFlow<String> = preferences.selectedSkin
+        .map { CaterpillarSkin.byId(it).id }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CaterpillarSkin.DEFAULT.id)
 
     /** Every star banked from level completions, including replays. */
@@ -154,7 +160,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     val availableStars: StateFlow<Int> =
         combine(totalStarsEarned, ownedSkins, starsSpentOnConsumables) { earned, owned, consumed ->
-            val skinSpend = CaterpillarSkin.ALL.filter { it.id in owned }.sumOf { it.cost }
+            // costFor covers skins retired from the catalogue too, so a purchase made
+            // before a trim keeps counting against the balance instead of quietly
+            // refunding itself the moment its id drops out of CaterpillarSkin.ALL.
+            val skinSpend = owned.sumOf { CaterpillarSkin.costFor(it) }
             (earned - skinSpend - consumed).coerceAtLeast(0)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -279,15 +288,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * of going back to the (by then empty) bank for a second helping.
      */
     fun startLevel(levelNumber: Int, reuseSpareLives: Boolean = false) {
-        val config = LevelConfig.getConfig(levelNumber, fieldAspect)
+        // A resume re-enters a level that already paid for its spare lives (they
+        // are part of the saved life count), so it must not be charged again.
+        val resume = pendingResume?.takeIf { it.level == levelNumber }
+        pendingResume = null
+
+        // A resume must land on the exact grid it was saved against, or the mask
+        // restore below rejects it as a size mismatch. fieldAspect lives only in
+        // memory and resets to its default whenever the ViewModel is recreated
+        // (e.g. the process was killed in the background - the very scenario the
+        // save exists for), so rebuild the board from the saved dimensions rather
+        // than trusting whatever the current field happens to report.
+        val config = if (resume != null && resume.gridHeight > 0) {
+            LevelConfig.getConfig(levelNumber, resume.gridWidth.toDouble() / resume.gridHeight)
+        } else {
+            LevelConfig.getConfig(levelNumber, fieldAspect)
+        }
         // Remember what the player actually asked for, so a late layout callback for
         // a level they have already left cannot restart the wrong one.
         requestedLevel = config.levelNumber
-
-        // A resume re-enters a level that already paid for its spare lives (they
-        // are part of the saved life count), so it must not be charged again.
-        val resume = pendingResume?.takeIf { it.level == config.levelNumber }
-        pendingResume = null
 
         val newEngine = GameEngine(config, initialLives = BASE_LIVES)
         engine = newEngine
@@ -301,20 +320,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.startMusic()
         viewModelScope.launch { preferences.saveLastPlayedLevel(config.levelNumber) }
 
-        // Apply a pending resume for this level, if one is armed. A mask from a
-        // differently shaped board is rejected inside restoreSnapshot, in which case
-        // the level simply starts fresh.
+        // Apply a pending resume for this level, if one is armed. The board above is
+        // already sized to match the save, so this should always succeed - but a
+        // mask that still doesn't fit (an old save from a different width formula)
+        // is rejected inside restoreSnapshot, in which case the save is left alone
+        // rather than being wiped out for a restore that never actually happened.
         restoredCurrentLevel = false
         if (resume != null) {
-            newEngine.restoreSnapshot(
+            val applied = newEngine.restoreSnapshot(
                 capturedMask = resume.capturedMask,
                 savedScore = resume.score,
                 savedLives = resume.lives,
                 savedTime = resume.timeRemaining,
                 savedEnemies = resume.enemies
             )
-            restoredCurrentLevel = true
-            viewModelScope.launch { preferences.clearSavedGame() }
+            if (applied) {
+                restoredCurrentLevel = true
+                viewModelScope.launch { preferences.clearSavedGame() }
+            }
         }
 
         // Spare lives are a ONE-LEVEL boost, withdrawn whenever a level genuinely
