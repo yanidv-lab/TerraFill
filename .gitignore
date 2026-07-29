@@ -32,3 +32,9 @@ debug.keystore.base64
 *.jks
 *.keystore
 keystore.properties
+
+# Personal Claude Code tooling (locally-installed skills, local machine
+# settings) - unrelated to the game, not meant for the shared repo.
+.agents/
+.claude/
+skills-lock.json
