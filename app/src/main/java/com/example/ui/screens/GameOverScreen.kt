@@ -89,7 +89,7 @@ fun GameOverScreen(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = "CONNECTION TO THE MATRIX SEVERED",
+                    text = "THE SPIDERS CLOSED IN",
                     color = NeonCyan,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -128,7 +128,7 @@ fun GameOverScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "DIED ON LEVEL:",
+                            text = "CAUGHT ON LEVEL:",
                             color = Color.White.copy(alpha = 0.7f),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
@@ -304,7 +304,7 @@ fun GameOverScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "RETURN TO CONTROL CENTER",
+                            text = "BACK TO THE JUNGLE",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
