@@ -933,7 +933,9 @@ class GameEngine(
     /**
      * Restores a mid-level save produced by [exportCapturedMask]: the claimed board,
      * score, lives and remaining time. The player returns to the safe spawn with no
-     * trail. Ignores a mask that does not match this board.
+     * trail. Returns false and changes nothing if the mask does not match this
+     * board's size - the caller must not treat the save as consumed in that case,
+     * since nothing was actually restored.
      *
      * [savedEnemies], from [exportEnemies], replaces the freshly-spawned roster with
      * the actual spiders the player left behind - same positions, same count. Left
@@ -947,8 +949,8 @@ class GameEngine(
         savedLives: Int,
         savedTime: Double,
         savedEnemies: String = ""
-    ) {
-        if (capturedMask.length != width * height) return
+    ): Boolean {
+        if (capturedMask.length != width * height) return false
 
         var i = 0
         for (x in 0 until width) {
@@ -1007,6 +1009,7 @@ class GameEngine(
         relocateTrappedEnemies()
         gridVersion++
         recalculateCapturedPercentage()
+        return true
     }
 
     /**

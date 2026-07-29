@@ -1173,13 +1173,23 @@ class GameEngineTest {
     }
 
     @Test
-    fun `a snapshot from a different board size is ignored`() {
+    fun `a snapshot from a different board size is ignored and reports it was not applied`() {
         val engine = newEngine()
         val before = engine.exportCapturedMask()
-        engine.restoreSnapshot("101010", savedScore = 999, savedLives = 1, savedTime = 5.0)
+        val applied = engine.restoreSnapshot("101010", savedScore = 999, savedLives = 1, savedTime = 5.0)
 
+        assertFalse("a size-mismatched mask must not be reported as applied", applied)
         assertEquals("board must be untouched", before, engine.exportCapturedMask())
         assertEquals("stats must be untouched", 0, engine.score)
+    }
+
+    @Test
+    fun `a snapshot matching the board size reports it was applied`() {
+        val engine = newEngine()
+        val mask = engine.exportCapturedMask()
+        val applied = engine.restoreSnapshot(mask, savedScore = 5, savedLives = 2, savedTime = 20.0)
+
+        assertTrue("a size-matched mask must be reported as applied", applied)
     }
 
     // ---------------------------------------------------------------- movement stability
