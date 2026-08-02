@@ -455,7 +455,7 @@ private fun RewardedAdCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, alignment = Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -465,7 +465,7 @@ private fun RewardedAdCard(
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
-                    text = "  WATCH AD FOR",
+                    text = "WATCH AD FOR",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
@@ -473,7 +473,7 @@ private fun RewardedAdCard(
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = " +$reward",
+                    text = "+$reward",
                     color = NeonYellow,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
