@@ -175,6 +175,36 @@ class GameEngineTest {
         assertEquals(GameStateStatus.LEVEL_COMPLETE, engine.status)
     }
 
+    @Test
+    fun `an enemy left embedded in captured land is rescued by the next capture event`() {
+        val engine = newEngine(targetPercentage = 100.0)
+        val embedded = enemyAt(2.0, 2.0)
+        engine.enemies.add(embedded)
+        // A guard on the right half keeps that region open, so the rescued enemy
+        // has somewhere to go and the level doesn't complete out from under it.
+        engine.enemies.add(enemyAt(7.0, 5.0))
+
+        // Simulate an enemy that (whatever the cause) ended up embedded in captured
+        // territory, boxed in on every side - previously this state was only ever
+        // repaired when restoring a saved game, never during live play.
+        engine.grid[2][2] = GridCellState.CAPTURED
+        engine.grid[1][2] = GridCellState.CAPTURED
+        engine.grid[3][2] = GridCellState.CAPTURED
+        engine.grid[2][1] = GridCellState.CAPTURED
+        engine.grid[2][3] = GridCellState.CAPTURED
+
+        // Trigger an unrelated capture elsewhere on the board.
+        engine.setDirection(Direction.DOWN)
+        repeat(9) { engine.step() }
+
+        val ex = embedded.x.toInt()
+        val ey = embedded.y.toInt()
+        assertFalse(
+            "the embedded enemy should have been moved out of captured land",
+            engine.grid[ex][ey] == GridCellState.CAPTURED
+        )
+    }
+
     // ---------------------------------------------------------------- crashing
 
     @Test
