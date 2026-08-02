@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,7 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -363,6 +370,10 @@ private fun ExtraLifeCard(
  * when this is shown - the caller hides it entirely once the daily cap is hit,
  * rather than showing a disabled/locked state, since there is nothing to buy
  * here and nothing to save up for.
+ *
+ * The border carries a slow-travelling white glow - a single bright point that
+ * loops around the frame on its own, never blinking - as a quiet "tap me"
+ * invitation that doesn't compete with the buy buttons around it.
  */
 @Composable
 private fun RewardedAdCard(
@@ -370,53 +381,83 @@ private fun RewardedAdCard(
     remaining: Int,
     onClick: () -> Unit
 ) {
-    Column(
+    val shape = RoundedCornerShape(16.dp)
+
+    val angle by rememberInfiniteTransition(label = "ad_card_glow")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(animation = tween(2600, easing = LinearEasing)),
+            label = "ad_card_glow_angle"
+        )
+    // Mostly transparent sweep with one bright point and a short fading tail,
+    // so rotating it reads as a single travelling glow rather than a spinning ring.
+    val glowBrush = Brush.sweepGradient(
+        0.00f to Color.Transparent,
+        0.05f to Color.White,
+        0.16f to Color.Transparent,
+        1.00f to Color.Transparent
+    )
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(shape)
             .background(Color(0xFF0A1F0E).copy(alpha = 0.9f))
-            .border(2.dp, LeafGreen.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(16.dp)
-            .testTag("watch_ad_button"),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            // Steady, dim frame so the card still reads clearly between glow passes.
+            .border(2.dp, LeafGreen.copy(alpha = 0.55f), shape)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { rotationZ = angle }
+                .border(2.dp, glowBrush, shape)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp)
+                .testTag("watch_ad_button"),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = LeafGreen,
-                modifier = Modifier.size(20.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = LeafGreen,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "  WATCH AD FOR",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+                Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
+                Text(
+                    text = " +$reward",
+                    color = NeonYellow,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
             Text(
-                text = "  WATCH AD FOR",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
+                text = "$remaining left today",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.sp
-            )
-            Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
-            Text(
-                text = " +$reward",
-                color = NeonYellow,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        Text(
-            text = "$remaining left today",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 
