@@ -259,6 +259,11 @@ fun NavGraph(
                         popUpTo(Screen.MainMenu.route)
                     }
                 },
+                onRetry = {
+                    navController.navigate(Screen.Game.createRoute(levelNumber)) {
+                        popUpTo(Screen.MainMenu.route)
+                    }
+                },
                 onMainMenu = {
                     navController.navigate(Screen.MainMenu.route) {
                         popUpTo(Screen.MainMenu.route) { inclusive = true }

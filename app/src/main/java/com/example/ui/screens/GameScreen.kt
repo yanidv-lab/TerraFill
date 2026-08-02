@@ -1709,7 +1709,13 @@ fun Playfield(
                         center = headCenter + Offset(0f, cellMin * 0.62f),
                         width = cellMin * PLAYER_SPRITE_CELLS * 0.6f
                     )
-                    drawCircle(Color.White, cellMin * 1.1f, headCenter, alpha = 0.12f) // soft glow
+                    // Sunlit halo behind the caterpillar: the default skin's body colour
+                    // (leaf green) sits too close to the reclaimed-ground fill colour to
+                    // read clearly on its own (tester feedback), so a warm gold wash plus
+                    // a tight white rim gives it a consistent silhouette against both the
+                    // dark wild jungle and the lighter captured land.
+                    drawCircle(JungleCoast, cellMin * 1.3f, headCenter, alpha = 0.32f)
+                    drawCircle(Color.White, cellMin * 0.95f, headCenter, alpha = 0.22f)
                     if (caterpillarSprite != null) {
                         drawSprite(
                             image = caterpillarSprite,
