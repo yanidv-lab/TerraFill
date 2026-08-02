@@ -27,3 +27,4 @@ val JungleCoast = Color(0xFFFFE9A8)                      // sunlit edge where cl
 val JungleDeep = Color(0xFF06180A)                       // near-black forest floor
 val JungleDusk = Color(0xFF0D2E14)                       // deep canopy green
 val LeafGreen = Color(0xFF57A63E)                        // healthy leaf green
+val JungleEmber = Color(0xFFE8623A)                       // rust-orange danger/loss accent

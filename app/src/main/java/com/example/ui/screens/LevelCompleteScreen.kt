@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,6 +50,7 @@ fun LevelCompleteScreen(
     starsEarned: Int = 0,
     isNewRecord: Boolean = false,
     onNextLevel: () -> Unit,
+    onRetry: () -> Unit,
     onMainMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -74,11 +76,7 @@ fun LevelCompleteScreen(
     }
 
     val bgGradient = Brush.verticalGradient(
-        colors = listOf(
-            ArcadeBgDark,
-            Color(0xFF0C1D29), // Deep success-cyan-indigo gradient
-            ArcadeBgDark
-        )
+        colors = listOf(JungleDeep, JungleDusk, JungleDeep)
     )
 
     Box(
@@ -134,7 +132,7 @@ fun LevelCompleteScreen(
             ) {
                 Text(
                     text = "TERRITORY CLAIMED!",
-                    color = NeonGreen,
+                    color = JungleCaptured,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
@@ -143,7 +141,7 @@ fun LevelCompleteScreen(
                 )
                 Text(
                     text = "THE SPIDERS HAVE RETREATED",
-                    color = NeonCyan,
+                    color = JungleCoast,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
@@ -154,9 +152,9 @@ fun LevelCompleteScreen(
             // Stats Card
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = ArcadeCardDark
+                    containerColor = JunglePanel
                 ),
-                border = BorderStroke(1.5.dp, NeonPurple),
+                border = BorderStroke(1.5.dp, JungleBorder),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -183,7 +181,7 @@ fun LevelCompleteScreen(
                         )
                     }
 
-                    HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                    HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
 
                     // Score Row
                     Row(
@@ -231,7 +229,7 @@ fun LevelCompleteScreen(
                             }
                             Text(
                                 text = String.format("%06d", score),
-                                color = NeonCyan,
+                                color = JungleCoast,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 20.sp
@@ -239,7 +237,7 @@ fun LevelCompleteScreen(
                         }
                     }
 
-                    HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                    HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
 
                     // Star payout: the currency banked for this run, which scales with
                     // the level and with how much of the board was claimed.
@@ -271,7 +269,7 @@ fun LevelCompleteScreen(
                         }
                     }
 
-                    HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                    HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
 
                     // Time Row
                     Row(
@@ -286,7 +284,7 @@ fun LevelCompleteScreen(
                         )
                         Text(
                             text = "$timeRemaining SEC",
-                            color = NeonMagenta,
+                            color = JungleCoast,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -303,8 +301,8 @@ fun LevelCompleteScreen(
                     Button(
                         onClick = onNextLevel,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonGreen,
-                            contentColor = Color.Black
+                            containerColor = LeafGreen,
+                            contentColor = Color.White
                         ),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
@@ -327,7 +325,7 @@ fun LevelCompleteScreen(
                                 imageVector = Icons.Default.ArrowForward,
                                 contentDescription = "Next Level Icon",
                                 modifier = Modifier.size(20.dp),
-                                tint = Color.Black
+                                tint = Color.White
                             )
                         }
                     }
@@ -351,11 +349,44 @@ fun LevelCompleteScreen(
                     }
                 }
 
+                // Only offered while the run fell short of a perfect score - a
+                // player who already has all 3 stars has nothing left to chase here.
+                if (stars < 3) {
+                    OutlinedButton(
+                        onClick = onRetry,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.5.dp, NeonYellow),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonYellow),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag("retry_for_stars_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry Icon",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "RETRY FOR 3 STARS",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
                 OutlinedButton(
                     onClick = onMainMenu,
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.5.dp, NeonCyan),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+                    border = BorderStroke(1.5.dp, JungleCoast),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = JungleCoast),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -80,6 +81,30 @@ class GamePreferences(context: Context) {
         private val SAVE_HEIGHT = intPreferencesKey("save_height")
         private val SAVE_MASK = stringPreferencesKey("save_mask")
         private val SAVE_ENEMIES = stringPreferencesKey("save_enemies")
+
+        // Rewarded-ad daily cap: which day the count is for, and how many so far.
+        private val REWARDED_AD_WATCH_DAY = longPreferencesKey("rewarded_ad_watch_day")
+        private val REWARDED_AD_WATCH_COUNT = intPreferencesKey("rewarded_ad_watch_count")
+
+        /** Days since the epoch, in the device's clock - all that matters is that it rolls over once a day. */
+        private fun currentDayEpoch(): Long = System.currentTimeMillis() / 86_400_000L
+    }
+
+    /** How many rewarded ads the player has already watched today. Rolls over to 0 on a new day. */
+    val rewardedAdWatchesToday: Flow<Int> = appContext.dataStore.data.map { preferences ->
+        val storedDay = preferences[REWARDED_AD_WATCH_DAY] ?: -1L
+        if (storedDay == currentDayEpoch()) preferences[REWARDED_AD_WATCH_COUNT] ?: 0 else 0
+    }
+
+    /** Records a completed rewarded-ad watch, resetting the count first if it's a new day. */
+    suspend fun recordRewardedAdWatch() {
+        appContext.dataStore.edit { preferences ->
+            val today = currentDayEpoch()
+            val storedDay = preferences[REWARDED_AD_WATCH_DAY] ?: -1L
+            val soFar = if (storedDay == today) preferences[REWARDED_AD_WATCH_COUNT] ?: 0 else 0
+            preferences[REWARDED_AD_WATCH_DAY] = today
+            preferences[REWARDED_AD_WATCH_COUNT] = soFar + 1
+        }
     }
 
     /** Every star ever earned from completing levels (replays keep adding). */

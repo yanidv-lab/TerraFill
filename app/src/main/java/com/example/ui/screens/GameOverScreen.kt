@@ -38,11 +38,7 @@ fun GameOverScreen(
     modifier: Modifier = Modifier
 ) {
     val bgGradient = Brush.verticalGradient(
-        colors = listOf(
-            ArcadeBgDark,
-            Color(0xFF220D1A), // Deep neon-magenta dark gradient
-            ArcadeBgDark
-        )
+        colors = listOf(JungleDeep, Color(0xFF1D1006), JungleDeep) // dark, embers-in-ash mood
     )
 
     Box(
@@ -62,13 +58,13 @@ fun GameOverScreen(
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .border(2.dp, NeonMagenta, RoundedCornerShape(16.dp))
-                    .background(NeonMagenta.copy(alpha = 0.1f)),
+                    .border(2.dp, JungleEmber, RoundedCornerShape(16.dp))
+                    .background(JungleEmber.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "☠",
-                    color = NeonMagenta,
+                    color = JungleEmber,
                     fontSize = 32.sp,
                     textAlign = TextAlign.Center
                 )
@@ -81,7 +77,7 @@ fun GameOverScreen(
             ) {
                 Text(
                     text = "GAME OVER",
-                    color = NeonMagenta,
+                    color = JungleEmber,
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
@@ -90,7 +86,7 @@ fun GameOverScreen(
                 )
                 Text(
                     text = "THE SPIDERS CLOSED IN",
-                    color = NeonCyan,
+                    color = JungleCoast,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
@@ -100,7 +96,7 @@ fun GameOverScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "PROGRESS & RECORDS SAVED",
-                    color = NeonGreen,
+                    color = JungleCaptured,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
@@ -112,9 +108,9 @@ fun GameOverScreen(
             // Score Card
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = ArcadeCardDark
+                    containerColor = JunglePanel
                 ),
-                border = BorderStroke(1.5.dp, NeonPurple),
+                border = BorderStroke(1.5.dp, JungleBorder),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -141,7 +137,7 @@ fun GameOverScreen(
                         )
                     }
 
-                    HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                    HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -156,7 +152,7 @@ fun GameOverScreen(
                         )
                         Text(
                             text = String.format("%06d", score),
-                            color = NeonCyan,
+                            color = JungleCoast,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 20.sp
@@ -166,7 +162,7 @@ fun GameOverScreen(
                     // How close the run came: claimed vs needed, with a bar. Losing
                     // is far less annoying when you can see you were nearly there.
                     if (targetPercent > 0) {
-                        HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                        HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -181,7 +177,7 @@ fun GameOverScreen(
                                 )
                                 Text(
                                     text = "$capturedPercent% / $targetPercent%",
-                                    color = NeonGreen,
+                                    color = JungleCaptured,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 18.sp
@@ -202,7 +198,7 @@ fun GameOverScreen(
                                         .fillMaxWidth(progress)
                                         .background(
                                             Brush.horizontalGradient(
-                                                colors = listOf(NeonCyan, NeonGreen)
+                                                colors = listOf(JungleCoast, JungleCaptured)
                                             )
                                         )
                                 )
@@ -221,7 +217,7 @@ fun GameOverScreen(
                     }
 
                     if (bestScore > 0) {
-                        HorizontalDivider(color = NeonPurple.copy(alpha = 0.3f))
+                        HorizontalDivider(color = JungleBorder.copy(alpha = 0.3f))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -253,7 +249,7 @@ fun GameOverScreen(
                 Button(
                     onClick = onRetry,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NeonMagenta,
+                        containerColor = LeafGreen,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(16.dp),
@@ -286,8 +282,8 @@ fun GameOverScreen(
                 OutlinedButton(
                     onClick = onMainMenu,
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.5.dp, NeonCyan),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+                    border = BorderStroke(1.5.dp, JungleCoast),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = JungleCoast),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)

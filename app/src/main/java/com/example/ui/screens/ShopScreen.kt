@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -56,6 +57,10 @@ fun ShopScreen(
     extraLifeCost: Int = 350,
     maxExtraLives: Int = 3,
     onBuyExtraLife: () -> Unit = {},
+    rewardedAdWatchesToday: Int = 0,
+    maxRewardedAdWatchesPerDay: Int = 5,
+    rewardedAdStarReward: Int = 150,
+    onWatchRewardedAd: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val portrait = rememberSafeImage(R.drawable.sprite_caterpillar)
@@ -106,6 +111,16 @@ fun ShopScreen(
                 fontFamily = FontFamily.Monospace,
                 textAlign = TextAlign.Center
             )
+
+            // Optional bonus: trade a short ad for stars. Capped per day so it stays
+            // a bonus alongside real play, not a replacement for it.
+            if (rewardedAdWatchesToday < maxRewardedAdWatchesPerDay) {
+                RewardedAdCard(
+                    reward = rewardedAdStarReward,
+                    remaining = maxRewardedAdWatchesPerDay - rewardedAdWatchesToday,
+                    onClick = onWatchRewardedAd
+                )
+            }
 
             // Consumable: spare lives, spent on the next level started
             ExtraLifeCard(
@@ -340,6 +355,68 @@ private fun ExtraLifeCard(
                 fontFamily = FontFamily.Monospace
             )
         }
+    }
+}
+
+/**
+ * Optional bonus card: trade a short ad for stars. [remaining] is always >= 1
+ * when this is shown - the caller hides it entirely once the daily cap is hit,
+ * rather than showing a disabled/locked state, since there is nothing to buy
+ * here and nothing to save up for.
+ */
+@Composable
+private fun RewardedAdCard(
+    reward: Int,
+    remaining: Int,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF0A1F0E).copy(alpha = 0.9f))
+            .border(2.dp, LeafGreen.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+            .testTag("watch_ad_button"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = LeafGreen,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = "  WATCH AD FOR",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp
+            )
+            Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
+            Text(
+                text = " +$reward",
+                color = NeonYellow,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Text(
+            text = "$remaining left today",
+            color = Color.White.copy(alpha = 0.5f),
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
