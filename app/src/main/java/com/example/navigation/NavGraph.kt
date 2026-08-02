@@ -26,7 +26,12 @@ import com.example.ui.screens.ShopScreen
 fun NavGraph(
     navController: NavHostController,
     viewModel: GameViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Showing a rewarded ad needs an Activity, which this Compose layer doesn't
+    // have - MainActivity owns the ad SDK and hands down a function that shows
+    // it and invokes [onEarned] only once the player actually watches to
+    // completion.
+    onWatchRewardedAd: (onEarned: () -> Unit) -> Unit = {}
 ) {
     val highestUnlockedLevel by viewModel.highestUnlockedLevel.collectAsStateWithLifecycle()
     val highScores by viewModel.highScores.collectAsStateWithLifecycle()
@@ -76,6 +81,7 @@ fun NavGraph(
             val owned by viewModel.ownedSkins.collectAsStateWithLifecycle()
             val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
             val spareLives by viewModel.extraLives.collectAsStateWithLifecycle()
+            val adWatchesToday by viewModel.rewardedAdWatchesToday.collectAsStateWithLifecycle()
             ShopScreen(
                 availableStars = stars,
                 ownedSkins = owned,
@@ -86,7 +92,11 @@ fun NavGraph(
                 extraLives = spareLives,
                 extraLifeCost = GameViewModel.EXTRA_LIFE_COST,
                 maxExtraLives = GameViewModel.MAX_EXTRA_LIVES,
-                onBuyExtraLife = { viewModel.buyExtraLife() }
+                onBuyExtraLife = { viewModel.buyExtraLife() },
+                rewardedAdWatchesToday = adWatchesToday,
+                maxRewardedAdWatchesPerDay = GameViewModel.MAX_REWARDED_AD_WATCHES_PER_DAY,
+                rewardedAdStarReward = GameViewModel.REWARDED_AD_STAR_REWARD,
+                onWatchRewardedAd = { onWatchRewardedAd { viewModel.grantRewardedAdStars() } }
             )
         }
 

@@ -3,6 +3,7 @@ package com.example
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
+import com.example.ads.RewardedAdManager
 import com.example.navigation.NavGraph
 import com.example.ui.GameViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -25,8 +27,14 @@ import java.io.StringWriter
 class MainActivity : ComponentActivity() {
     private var gameViewModel: GameViewModel? = null
 
+    // Showing a rewarded ad needs an Activity (for the SDK's full-screen content),
+    // which is why this lives here rather than in the ViewModel - the ViewModel
+    // only ever sees the outcome, via the onEarned callback handed to NavGraph.
+    private val rewardedAdManager by lazy { RewardedAdManager(this) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        rewardedAdManager.initialize()
 
         // Global crash handler — shows a readable error screen instead of silently
         // closing, then ALWAYS hands the crash on to the platform handler.
@@ -77,7 +85,20 @@ class MainActivity : ComponentActivity() {
                     NavGraph(
                         navController = navController,
                         viewModel = vm,
-                        modifier = Modifier.padding(innerPadding)
+                        modifier = Modifier.padding(innerPadding),
+                        onWatchRewardedAd = { onEarned ->
+                            rewardedAdManager.show(
+                                activity = this@MainActivity,
+                                onReward = onEarned,
+                                onDismissedWithoutReward = {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Ad not ready yet - try again in a moment",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        }
                     )
                 }
             }

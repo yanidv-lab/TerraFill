@@ -83,6 +83,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val EXTRA_LIFE_COST = 350
         /** Most spare lives that may be banked at once. */
         const val MAX_EXTRA_LIVES = 3
+        /** Stars granted per completed rewarded-ad watch. */
+        const val REWARDED_AD_STAR_REWARD = 150
+        /** Daily cap on rewarded-ad watches, so it stays a bonus rather than the main loop. */
+        const val MAX_REWARDED_AD_WATCHES_PER_DAY = 5
     }
 
     private val preferences = GamePreferences(application)
@@ -166,6 +170,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val skinSpend = owned.sumOf { CaterpillarSkin.costFor(it) }
             (earned - skinSpend - consumed).coerceAtLeast(0)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Rewarded-ad watches used up today, out of [MAX_REWARDED_AD_WATCHES_PER_DAY]. */
+    val rewardedAdWatchesToday: StateFlow<Int> = preferences.rewardedAdWatchesToday
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /**
+     * Grants the reward for a rewarded ad the player watched to completion, and
+     * records it against the daily cap. The caller (the ad SDK wrapper) is what
+     * guarantees this only fires on genuine completion, never on an early close.
+     */
+    fun grantRewardedAdStars() {
+        viewModelScope.launch {
+            preferences.addStars(REWARDED_AD_STAR_REWARD)
+            preferences.recordRewardedAdWatch()
+        }
+    }
 
     /** Buys one spare life if the player can afford it and is under the cap. */
     fun buyExtraLife() {
