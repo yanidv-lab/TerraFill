@@ -15,19 +15,20 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
  * Loads and shows the "watch an ad for stars" rewarded ad, behind a small
  * callback API so the rest of the app never touches AdMob types directly.
  *
- * [adUnitId] defaults to Google's public rewarded-ad TEST unit - safe to ship
- * while developing (it always serves a placeholder ad), but MUST be replaced
- * with a real AdMob ad unit id, and the app's manifest APPLICATION_ID with a
- * real AdMob app id, before this reaches real users - otherwise no ad ever
- * generates real revenue, and Google will flag production traffic against
- * test ad units as a policy violation.
+ * [adUnitId] defaults to the real AdMob rewarded ad unit for this app. The
+ * manifest's APPLICATION_ID meta-data must likewise be the real AdMob app id
+ * (it is) - Google flags production traffic served against test ad units as
+ * a policy violation, and no test ad ever generates real revenue.
  */
 class RewardedAdManager(
     private val context: Context,
-    private val adUnitId: String = TEST_AD_UNIT_ID
+    private val adUnitId: String = PRODUCTION_AD_UNIT_ID
 ) {
     companion object {
-        /** Google's public sample rewarded-ad unit id, documented in their own integration guide. */
+        /** This app's real AdMob rewarded ad unit id. */
+        const val PRODUCTION_AD_UNIT_ID = "ca-app-pub-8250547585089024/7027261120"
+
+        /** Google's public sample rewarded-ad unit id - only for local experimentation. */
         const val TEST_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
         private const val TAG = "RewardedAdManager"
     }
