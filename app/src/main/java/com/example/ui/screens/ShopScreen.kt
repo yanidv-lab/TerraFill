@@ -472,7 +472,6 @@ private fun RewardedAdCard(
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 1.sp
                 )
-                Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
                 Text(
                     text = " +$reward",
                     color = NeonYellow,
@@ -480,6 +479,7 @@ private fun RewardedAdCard(
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace
                 )
+                Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
             }
             Text(
                 text = "$remaining left today",
