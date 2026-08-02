@@ -693,6 +693,15 @@ class GameEngine(
                     // Run the Flood Fill algorithm to evaluate and capture regions with no enemies
                     val filledCells = FloodFill.evaluateAndCaptureRegions(grid, enemies)
 
+                    // FloodFill only excludes a region from capture when an enemy's floored
+                    // grid cell sits inside it - an enemy whose circle straddles two cells can
+                    // still get boxed in when the region it's actually leaning into is a
+                    // diagonally-adjacent pocket (not 4-connected to its own cell, so it reads
+                    // as enemy-free and gets captured anyway). Previously only run on restore;
+                    // running it after every capture rescues any enemy caught by that edge case
+                    // before it can soft-lock bouncing against captured land forever.
+                    relocateTrappedEnemies()
+
                     // Record the capture event so the UI can animate the claimed area
                     lastCapturedCells = trailCells + filledCells
                     captureCount++
