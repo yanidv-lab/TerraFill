@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,9 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -371,9 +376,13 @@ private fun ExtraLifeCard(
  * rather than showing a disabled/locked state, since there is nothing to buy
  * here and nothing to save up for.
  *
- * The border carries a slow-travelling white glow - a single bright point that
- * loops around the frame on its own, never blinking - as a quiet "tap me"
- * invitation that doesn't compete with the buy buttons around it.
+ * The border carries a slow-travelling white glow - a short bright arc that
+ * laps the frame at a constant pace, never blinking - as a quiet "tap me"
+ * invitation that doesn't compete with the buy buttons around it. The arc is
+ * drawn by walking the card's own rounded-rect outline with [PathMeasure]
+ * rather than rotating a gradient, since a rotated sweep gradient warps
+ * unevenly around a non-square shape - corners speed up, long edges crawl.
+ * Walking the real path keeps the pace constant all the way around.
  */
 @Composable
 private fun RewardedAdCard(
@@ -382,22 +391,16 @@ private fun RewardedAdCard(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val cornerRadiusDp = 16.dp
+    val strokeWidthDp = 2.5.dp
 
-    val angle by rememberInfiniteTransition(label = "ad_card_glow")
+    val progress by rememberInfiniteTransition(label = "ad_card_glow")
         .animateFloat(
             initialValue = 0f,
-            targetValue = 360f,
+            targetValue = 1f,
             animationSpec = infiniteRepeatable(animation = tween(2600, easing = LinearEasing)),
-            label = "ad_card_glow_angle"
+            label = "ad_card_glow_progress"
         )
-    // Mostly transparent sweep with one bright point and a short fading tail,
-    // so rotating it reads as a single travelling glow rather than a spinning ring.
-    val glowBrush = Brush.sweepGradient(
-        0.00f to Color.Transparent,
-        0.05f to Color.White,
-        0.16f to Color.Transparent,
-        1.00f to Color.Transparent
-    )
 
     Box(
         modifier = Modifier
@@ -407,12 +410,47 @@ private fun RewardedAdCard(
             // Steady, dim frame so the card still reads clearly between glow passes.
             .border(2.dp, LeafGreen.copy(alpha = 0.55f), shape)
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer { rotationZ = angle }
-                .border(2.dp, glowBrush, shape)
-        )
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val strokeWidthPx = strokeWidthDp.toPx()
+            val cornerPx = cornerRadiusDp.toPx()
+            val inset = strokeWidthPx / 2f
+            val outline = Path().apply {
+                addRoundRect(
+                    RoundRect(
+                        left = inset,
+                        top = inset,
+                        right = size.width - inset,
+                        bottom = size.height - inset,
+                        cornerRadius = CornerRadius(cornerPx, cornerPx)
+                    )
+                )
+            }
+            val measure = PathMeasure().apply { setPath(outline, true) }
+            val total = measure.length
+            val arcLength = total * 0.16f
+            val start = progress * total
+            val end = start + arcLength
+            val glowPath = Path()
+            if (end <= total) {
+                measure.getSegment(start, end, glowPath, true)
+            } else {
+                // Wraps past the outline's end - stitch the tail onto the wrapped head
+                // so the arc never visibly breaks as it crosses the seam.
+                measure.getSegment(start, total, glowPath, true)
+                measure.getSegment(0f, end - total, glowPath, false)
+            }
+            // Soft halo underneath, crisp bright core on top - reads as a glow, not a line.
+            drawPath(
+                path = glowPath,
+                color = Color.White.copy(alpha = 0.45f),
+                style = Stroke(width = strokeWidthPx * 2.4f, cap = StrokeCap.Round)
+            )
+            drawPath(
+                path = glowPath,
+                color = Color.White,
+                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
