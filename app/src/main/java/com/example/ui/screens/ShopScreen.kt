@@ -1,6 +1,12 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,7 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -363,6 +373,15 @@ private fun ExtraLifeCard(
  * when this is shown - the caller hides it entirely once the daily cap is hit,
  * rather than showing a disabled/locked state, since there is nothing to buy
  * here and nothing to save up for.
+ *
+ * The border carries a slow-travelling white glow - a comet-like point that
+ * laps the frame at a constant pace, never blinking - as a quiet "tap me"
+ * invitation that doesn't compete with the buy buttons around it. Drawn as
+ * many small points sampled along the card's own rounded-rect outline (via
+ * [PathMeasure], walking the real path rather than rotating a gradient, which
+ * warps unevenly on a non-square shape), fading from nothing at the tail to
+ * fully bright at the leading edge - a solid-coloured segment of even width
+ * read as a blunt "snake"; fading points read as light.
  */
 @Composable
 private fun RewardedAdCard(
@@ -370,53 +389,107 @@ private fun RewardedAdCard(
     remaining: Int,
     onClick: () -> Unit
 ) {
-    Column(
+    val shape = RoundedCornerShape(16.dp)
+    val cornerRadiusDp = 16.dp
+    val strokeWidthDp = 1.6.dp
+
+    val progress by rememberInfiniteTransition(label = "ad_card_glow")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(animation = tween(2600, easing = LinearEasing)),
+            label = "ad_card_glow_progress"
+        )
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(shape)
             .background(Color(0xFF0A1F0E).copy(alpha = 0.9f))
-            .border(2.dp, LeafGreen.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(16.dp)
-            .testTag("watch_ad_button"),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            // Steady, dim frame so the card still reads clearly between glow passes.
+            .border(2.dp, LeafGreen.copy(alpha = 0.55f), shape)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val strokeWidthPx = strokeWidthDp.toPx()
+            val cornerPx = cornerRadiusDp.toPx()
+            val inset = strokeWidthPx / 2f
+            val outline = Path().apply {
+                addRoundRect(
+                    RoundRect(
+                        left = inset,
+                        top = inset,
+                        right = size.width - inset,
+                        bottom = size.height - inset,
+                        cornerRadius = CornerRadius(cornerPx, cornerPx)
+                    )
+                )
+            }
+            val measure = PathMeasure().apply { setPath(outline, true) }
+            val total = measure.length
+            if (total <= 0f) return@Canvas
+
+            // A comet, not a snake: many small points sampled along a short stretch
+            // of the outline, fading from nothing at the tail to fully bright at the
+            // leading edge, instead of one solid-coloured segment of even width and
+            // brightness (which is what read as a blunt, uniform "worm" before).
+            val tailLength = total * 0.16f
+            val samples = 36
+            for (i in 0 until samples) {
+                val f = i / (samples - 1).toFloat() // 0 = tail (dim), 1 = leading edge (bright)
+                val d = (progress * total + f * tailLength).mod(total)
+                val p = measure.getPosition(d)
+                val brightness = f * f // eases in, so most of the tail stays faint
+                // Soft wide bloom first, then a thin bright core - keeps the line itself
+                // thin while still reading as glowing light rather than a hard dot.
+                drawCircle(color = Color.White, radius = strokeWidthPx * 1.8f, center = p, alpha = brightness * 0.25f)
+                drawCircle(color = Color.White, radius = strokeWidthPx * 0.55f, center = p, alpha = brightness)
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp)
+                .testTag("watch_ad_button"),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = LeafGreen,
-                modifier = Modifier.size(20.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = LeafGreen,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "  WATCH AD FOR",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+                Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
+                Text(
+                    text = " +$reward",
+                    color = NeonYellow,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
             Text(
-                text = "  WATCH AD FOR",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
+                text = "$remaining left today",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.sp
-            )
-            Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
-            Text(
-                text = " +$reward",
-                color = NeonYellow,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        Text(
-            text = "$remaining left today",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 

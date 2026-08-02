@@ -216,15 +216,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val savedGame: StateFlow<SavedGame?> = preferences.savedGame
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    /**
-     * Persists the current run. Called when the app goes to the background and after
-     * each capture, so an interruption (or the process being killed) never loses more
-     * than the last few seconds of play.
-     */
-    fun saveProgressSnapshot() {
-        val active = engine ?: return
-        if (active.status != GameStateStatus.RUNNING && active.status != GameStateStatus.PAUSED) return
-        val snapshot = SavedGame(
+    private fun buildProgressSnapshot(): SavedGame? {
+        val active = engine ?: return null
+        if (active.status != GameStateStatus.RUNNING && active.status != GameStateStatus.PAUSED) return null
+        return SavedGame(
             level = active.levelConfig.levelNumber,
             score = active.score,
             lives = active.lives,
@@ -234,7 +229,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             capturedMask = active.exportCapturedMask(),
             enemies = active.exportEnemies()
         )
+    }
+
+    /**
+     * Persists the current run. Called after each capture, so a later interruption
+     * never loses more than the last few seconds of play. Fire-and-forget is fine
+     * here - there's always a next capture (or [saveProgressSnapshotBlocking]) to
+     * catch up if this particular write loses a race with something.
+     */
+    fun saveProgressSnapshot() {
+        val snapshot = buildProgressSnapshot() ?: return
         viewModelScope.launch { preferences.saveGame(snapshot) }
+    }
+
+    /**
+     * Same save as [saveProgressSnapshot], but blocks the caller until the write
+     * actually lands on disk. Exists for onPause(): that is the last callback
+     * Android guarantees before it may kill the process with no further warning,
+     * so a fire-and-forget coroutine launched there is racing process death and
+     * can lose - the app would then quietly have no save at all, despite genuinely
+     * calling saveProgressSnapshot() every time the player was interrupted. A
+     * DataStore Preferences write is small enough that blocking briefly here is a
+     * fair trade against silently discarding the run.
+     */
+    fun saveProgressSnapshotBlocking() {
+        val snapshot = buildProgressSnapshot() ?: return
+        kotlinx.coroutines.runBlocking { preferences.saveGame(snapshot) }
     }
 
     /**
