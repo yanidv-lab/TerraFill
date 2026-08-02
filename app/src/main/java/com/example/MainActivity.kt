@@ -110,7 +110,9 @@ class MainActivity : ComponentActivity() {
         gameViewModel?.pauseAudio()
         // Persist the run here: onPause is the last callback guaranteed before the
         // system may kill the process, so an interrupted game can always be resumed.
-        gameViewModel?.saveProgressSnapshot()
+        // Uses the blocking variant deliberately - a fire-and-forget save launched
+        // here would be racing process death and can lose that race silently.
+        gameViewModel?.saveProgressSnapshotBlocking()
     }
 
     override fun onResume() {
