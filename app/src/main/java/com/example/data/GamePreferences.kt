@@ -3,7 +3,6 @@ package com.example.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -87,13 +86,16 @@ class GamePreferences(context: Context) {
         private val REWARDED_AD_WATCH_DAY = longPreferencesKey("rewarded_ad_watch_day")
         private val REWARDED_AD_WATCH_COUNT = intPreferencesKey("rewarded_ad_watch_count")
 
-        // Share-for-stars: the reward is one-time-ever, but sharing itself is not
-        // rate-limited - only this flag ever changes, so repeat shares after the
-        // first are free of any bookkeeping.
-        private val SHARE_REWARD_CLAIMED = booleanPreferencesKey("share_reward_claimed")
+        // Share-for-stars: which week the reward was last claimed in. Sharing itself
+        // is never rate-limited - only this stamp ever changes, so repeat shares
+        // within the same week are free of any bookkeeping.
+        private val SHARE_REWARD_WEEK = longPreferencesKey("share_reward_week")
 
         /** Days since the epoch, in the device's clock - all that matters is that it rolls over once a day. */
         private fun currentDayEpoch(): Long = System.currentTimeMillis() / 86_400_000L
+
+        /** Weeks since the epoch, in the device's clock - rolls over once every 7 days. */
+        private fun currentWeekEpoch(): Long = System.currentTimeMillis() / (7 * 86_400_000L)
     }
 
     /** How many rewarded ads the player has already watched today. Rolls over to 0 on a new day. */
@@ -118,23 +120,24 @@ class GamePreferences(context: Context) {
         preferences[TOTAL_STARS_EARNED] ?: 0
     }
 
-    /** Whether the one-time share reward has already been paid out. */
-    val hasClaimedShareReward: Flow<Boolean> = appContext.dataStore.data.map { preferences ->
-        preferences[SHARE_REWARD_CLAIMED] == true
+    /** Whether the share reward has already been claimed in the current week. */
+    val hasClaimedShareRewardThisWeek: Flow<Boolean> = appContext.dataStore.data.map { preferences ->
+        (preferences[SHARE_REWARD_WEEK] ?: -1L) == currentWeekEpoch()
     }
 
     /**
-     * Pays out [amount] stars for sharing the game, but only the first time this is
-     * ever called - checked and set inside the same DataStore transaction so it
-     * can't double-grant even if invoked more than once in quick succession (e.g.
-     * a fast double-tap before the UI re-collects the claimed flag). Returns
-     * whether this call was the one that actually claimed it.
+     * Pays out [amount] stars for sharing the game, but only once per week - checked
+     * and set inside the same DataStore transaction so it can't double-grant even if
+     * invoked more than once in quick succession (e.g. a fast double-tap before the
+     * UI re-collects the claimed flag). Returns whether this call was the one that
+     * actually claimed it.
      */
     suspend fun claimShareRewardIfEligible(amount: Int): Boolean {
         var claimed = false
         appContext.dataStore.edit { preferences ->
-            if (preferences[SHARE_REWARD_CLAIMED] != true) {
-                preferences[SHARE_REWARD_CLAIMED] = true
+            val week = currentWeekEpoch()
+            if ((preferences[SHARE_REWARD_WEEK] ?: -1L) != week) {
+                preferences[SHARE_REWARD_WEEK] = week
                 preferences[TOTAL_STARS_EARNED] = (preferences[TOTAL_STARS_EARNED] ?: 0) + amount
                 claimed = true
             }

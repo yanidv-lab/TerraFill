@@ -86,7 +86,7 @@ fun NavGraph(
             val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
             val spareLives by viewModel.extraLives.collectAsStateWithLifecycle()
             val adWatchesToday by viewModel.rewardedAdWatchesToday.collectAsStateWithLifecycle()
-            val shareRewardClaimed by viewModel.hasClaimedShareReward.collectAsStateWithLifecycle()
+            val shareRewardClaimed by viewModel.hasClaimedShareRewardThisWeek.collectAsStateWithLifecycle()
             ShopScreen(
                 availableStars = stars,
                 ownedSkins = owned,
@@ -102,9 +102,9 @@ fun NavGraph(
                 maxRewardedAdWatchesPerDay = GameViewModel.MAX_REWARDED_AD_WATCHES_PER_DAY,
                 rewardedAdStarReward = GameViewModel.REWARDED_AD_STAR_REWARD,
                 onWatchRewardedAd = { onWatchRewardedAd { viewModel.grantRewardedAdStars() } },
-                shareRewardClaimed = shareRewardClaimed,
+                shareRewardClaimedThisWeek = shareRewardClaimed,
                 shareStarReward = GameViewModel.SHARE_STAR_REWARD,
-                onShareGame = { onShareGame { viewModel.grantShareStarsOnce() } }
+                onShareGame = { onShareGame { viewModel.grantShareStarsIfEligible() } }
             )
         }
 
