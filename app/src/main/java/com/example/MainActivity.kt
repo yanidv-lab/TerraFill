@@ -15,6 +15,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.example.ads.RewardedAdManager
 import com.example.navigation.NavGraph
+import com.example.share.launchGameShare
 import com.example.ui.GameViewModel
 import com.example.ui.theme.MyApplicationTheme
 import java.io.PrintWriter
@@ -97,6 +98,14 @@ class MainActivity : ComponentActivity() {
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
+                            )
+                        },
+                        onShareGame = { onTargetChosen ->
+                            launchGameShare(
+                                activity = this@MainActivity,
+                                text = "I'm claiming the jungle in TerraFill! Grab it here: " +
+                                    "https://play.google.com/store/apps/details?id=com.yanidv.terrafill",
+                                onTargetChosen = onTargetChosen
                             )
                         }
                     )

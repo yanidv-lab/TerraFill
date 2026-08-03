@@ -31,7 +31,11 @@ fun NavGraph(
     // have - MainActivity owns the ad SDK and hands down a function that shows
     // it and invokes [onEarned] only once the player actually watches to
     // completion.
-    onWatchRewardedAd: (onEarned: () -> Unit) -> Unit = {}
+    onWatchRewardedAd: (onEarned: () -> Unit) -> Unit = {},
+    // Same story as onWatchRewardedAd: launching Android's share sheet needs an
+    // Activity, so MainActivity hands down a function that shows it and invokes
+    // [onTargetChosen] only once the player actually picks an app to share with.
+    onShareGame: (onTargetChosen: () -> Unit) -> Unit = {}
 ) {
     val highestUnlockedLevel by viewModel.highestUnlockedLevel.collectAsStateWithLifecycle()
     val highScores by viewModel.highScores.collectAsStateWithLifecycle()
@@ -82,6 +86,7 @@ fun NavGraph(
             val equipped by viewModel.selectedSkin.collectAsStateWithLifecycle()
             val spareLives by viewModel.extraLives.collectAsStateWithLifecycle()
             val adWatchesToday by viewModel.rewardedAdWatchesToday.collectAsStateWithLifecycle()
+            val shareRewardClaimed by viewModel.hasClaimedShareReward.collectAsStateWithLifecycle()
             ShopScreen(
                 availableStars = stars,
                 ownedSkins = owned,
@@ -96,7 +101,10 @@ fun NavGraph(
                 rewardedAdWatchesToday = adWatchesToday,
                 maxRewardedAdWatchesPerDay = GameViewModel.MAX_REWARDED_AD_WATCHES_PER_DAY,
                 rewardedAdStarReward = GameViewModel.REWARDED_AD_STAR_REWARD,
-                onWatchRewardedAd = { onWatchRewardedAd { viewModel.grantRewardedAdStars() } }
+                onWatchRewardedAd = { onWatchRewardedAd { viewModel.grantRewardedAdStars() } },
+                shareRewardClaimed = shareRewardClaimed,
+                shareStarReward = GameViewModel.SHARE_STAR_REWARD,
+                onShareGame = { onShareGame { viewModel.grantShareStarsOnce() } }
             )
         }
 

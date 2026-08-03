@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -71,6 +72,9 @@ fun ShopScreen(
     maxRewardedAdWatchesPerDay: Int = 5,
     rewardedAdStarReward: Int = 150,
     onWatchRewardedAd: () -> Unit = {},
+    shareRewardClaimed: Boolean = false,
+    shareStarReward: Int = 700,
+    onShareGame: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val portrait = rememberSafeImage(R.drawable.sprite_caterpillar)
@@ -131,6 +135,15 @@ fun ShopScreen(
                     onClick = onWatchRewardedAd
                 )
             }
+
+            // Share is unlimited (a friend link is worth spreading any time), but the
+            // star payout is a one-time bonus - claimed once, the card just becomes a
+            // plain "tell a friend" action with no more stars attached.
+            ShareCard(
+                reward = shareStarReward,
+                claimed = shareRewardClaimed,
+                onClick = onShareGame
+            )
 
             // Consumable: spare lives, spent on the next level started
             ExtraLifeCard(
@@ -483,6 +496,75 @@ private fun RewardedAdCard(
             }
             Text(
                 text = "$remaining left today",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * Share the game via Android's share sheet. Sharing itself is never limited - the
+ * button always opens the chooser - but the star payout only ever lands once, so
+ * once [claimed] is true the card just drops the reward line and becomes a plain
+ * "tell a friend" action.
+ */
+@Composable
+private fun ShareCard(
+    reward: Int,
+    claimed: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color(0xFF0A1F0E).copy(alpha = 0.9f))
+            .border(2.dp, JungleCoast.copy(alpha = 0.55f), shape)
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+            .testTag("share_game_button")
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, alignment = Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    tint = JungleCoast,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "SHARE TERRAFILL",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+                if (!claimed) {
+                    Text(
+                        text = "+$reward",
+                        color = NeonYellow,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(15.dp))
+                }
+            }
+            Text(
+                text = if (claimed) "Tell a friend, any time" else "One-time bonus for spreading the word",
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,

@@ -87,6 +87,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val REWARDED_AD_STAR_REWARD = 150
         /** Daily cap on rewarded-ad watches, so it stays a bonus rather than the main loop. */
         const val MAX_REWARDED_AD_WATCHES_PER_DAY = 5
+        /** One-time stars granted the first time the player shares the game. */
+        const val SHARE_STAR_REWARD = 700
     }
 
     private val preferences = GamePreferences(application)
@@ -184,6 +186,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             preferences.addStars(REWARDED_AD_STAR_REWARD)
             preferences.recordRewardedAdWatch()
+        }
+    }
+
+    /** Whether the one-time share reward has already been paid out. */
+    val hasClaimedShareReward: StateFlow<Boolean> = preferences.hasClaimedShareReward
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Grants the one-time share reward, the first time the player actually picks a
+     * target app from the share sheet. Sharing itself is never limited - the caller
+     * can reopen the share sheet as often as it likes - but the payout can only ever
+     * land once, enforced atomically in storage so a stray double-call can't pay it
+     * out twice.
+     */
+    fun grantShareStarsOnce() {
+        viewModelScope.launch {
+            preferences.claimShareRewardIfEligible(SHARE_STAR_REWARD)
         }
     }
 
