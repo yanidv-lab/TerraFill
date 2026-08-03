@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -72,7 +73,7 @@ fun ShopScreen(
     maxRewardedAdWatchesPerDay: Int = 5,
     rewardedAdStarReward: Int = 150,
     onWatchRewardedAd: () -> Unit = {},
-    shareRewardClaimed: Boolean = false,
+    shareRewardClaimedThisWeek: Boolean = false,
     shareStarReward: Int = 700,
     onShareGame: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -137,11 +138,11 @@ fun ShopScreen(
             }
 
             // Share is unlimited (a friend link is worth spreading any time), but the
-            // star payout is a one-time bonus - claimed once, the card just becomes a
-            // plain "tell a friend" action with no more stars attached.
+            // star payout resets weekly - once claimed the card becomes a plain "tell
+            // a friend" action until the window opens again.
             ShareCard(
                 reward = shareStarReward,
-                claimed = shareRewardClaimed,
+                claimedThisWeek = shareRewardClaimedThisWeek,
                 onClick = onShareGame
             )
 
@@ -382,19 +383,71 @@ private fun ExtraLifeCard(
 }
 
 /**
+ * A slow-travelling white glow along a rounded-rect border - a comet-like point
+ * that laps the frame at a constant pace, never blinking - used as a quiet "tap
+ * me" invitation on bonus cards. Drawn as many small points sampled along the
+ * shape's own outline (via [PathMeasure], walking the real path rather than
+ * rotating a gradient, which warps unevenly on a non-square shape), fading from
+ * nothing at the tail to fully bright at the leading edge - a solid-coloured
+ * segment of even width read as a blunt "snake"; fading points read as light.
+ *
+ * Shared by every bonus card in the shop so they all pulse in visual sync and
+ * the animation logic exists in exactly one place.
+ */
+@Composable
+private fun CometBorderGlow(cornerRadiusDp: Dp, modifier: Modifier = Modifier) {
+    val strokeWidthDp = 1.6.dp
+    val progress by rememberInfiniteTransition(label = "bonus_card_glow")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(animation = tween(2600, easing = LinearEasing)),
+            label = "bonus_card_glow_progress"
+        )
+
+    Canvas(modifier = modifier) {
+        val strokeWidthPx = strokeWidthDp.toPx()
+        val cornerPx = cornerRadiusDp.toPx()
+        val inset = strokeWidthPx / 2f
+        val outline = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = inset,
+                    top = inset,
+                    right = size.width - inset,
+                    bottom = size.height - inset,
+                    cornerRadius = CornerRadius(cornerPx, cornerPx)
+                )
+            )
+        }
+        val measure = PathMeasure().apply { setPath(outline, true) }
+        val total = measure.length
+        if (total <= 0f) return@Canvas
+
+        // A comet, not a snake: many small points sampled along a short stretch
+        // of the outline, fading from nothing at the tail to fully bright at the
+        // leading edge, instead of one solid-coloured segment of even width and
+        // brightness (which is what read as a blunt, uniform "worm" before).
+        val tailLength = total * 0.16f
+        val samples = 36
+        for (i in 0 until samples) {
+            val f = i / (samples - 1).toFloat() // 0 = tail (dim), 1 = leading edge (bright)
+            val d = (progress * total + f * tailLength).mod(total)
+            val p = measure.getPosition(d)
+            val brightness = f * f // eases in, so most of the tail stays faint
+            // Soft wide bloom first, then a thin bright core - keeps the line itself
+            // thin while still reading as glowing light rather than a hard dot.
+            drawCircle(color = Color.White, radius = strokeWidthPx * 1.8f, center = p, alpha = brightness * 0.25f)
+            drawCircle(color = Color.White, radius = strokeWidthPx * 0.55f, center = p, alpha = brightness)
+        }
+    }
+}
+
+/**
  * Optional bonus card: trade a short ad for stars. [remaining] is always >= 1
  * when this is shown - the caller hides it entirely once the daily cap is hit,
  * rather than showing a disabled/locked state, since there is nothing to buy
  * here and nothing to save up for.
- *
- * The border carries a slow-travelling white glow - a comet-like point that
- * laps the frame at a constant pace, never blinking - as a quiet "tap me"
- * invitation that doesn't compete with the buy buttons around it. Drawn as
- * many small points sampled along the card's own rounded-rect outline (via
- * [PathMeasure], walking the real path rather than rotating a gradient, which
- * warps unevenly on a non-square shape), fading from nothing at the tail to
- * fully bright at the leading edge - a solid-coloured segment of even width
- * read as a blunt "snake"; fading points read as light.
  */
 @Composable
 private fun RewardedAdCard(
@@ -403,16 +456,6 @@ private fun RewardedAdCard(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
-    val cornerRadiusDp = 16.dp
-    val strokeWidthDp = 1.6.dp
-
-    val progress by rememberInfiniteTransition(label = "ad_card_glow")
-        .animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(animation = tween(2600, easing = LinearEasing)),
-            label = "ad_card_glow_progress"
-        )
 
     Box(
         modifier = Modifier
@@ -422,42 +465,7 @@ private fun RewardedAdCard(
             // Steady, dim frame so the card still reads clearly between glow passes.
             .border(2.dp, LeafGreen.copy(alpha = 0.55f), shape)
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val strokeWidthPx = strokeWidthDp.toPx()
-            val cornerPx = cornerRadiusDp.toPx()
-            val inset = strokeWidthPx / 2f
-            val outline = Path().apply {
-                addRoundRect(
-                    RoundRect(
-                        left = inset,
-                        top = inset,
-                        right = size.width - inset,
-                        bottom = size.height - inset,
-                        cornerRadius = CornerRadius(cornerPx, cornerPx)
-                    )
-                )
-            }
-            val measure = PathMeasure().apply { setPath(outline, true) }
-            val total = measure.length
-            if (total <= 0f) return@Canvas
-
-            // A comet, not a snake: many small points sampled along a short stretch
-            // of the outline, fading from nothing at the tail to fully bright at the
-            // leading edge, instead of one solid-coloured segment of even width and
-            // brightness (which is what read as a blunt, uniform "worm" before).
-            val tailLength = total * 0.16f
-            val samples = 36
-            for (i in 0 until samples) {
-                val f = i / (samples - 1).toFloat() // 0 = tail (dim), 1 = leading edge (bright)
-                val d = (progress * total + f * tailLength).mod(total)
-                val p = measure.getPosition(d)
-                val brightness = f * f // eases in, so most of the tail stays faint
-                // Soft wide bloom first, then a thin bright core - keeps the line itself
-                // thin while still reading as glowing light rather than a hard dot.
-                drawCircle(color = Color.White, radius = strokeWidthPx * 1.8f, center = p, alpha = brightness * 0.25f)
-                drawCircle(color = Color.White, radius = strokeWidthPx * 0.55f, center = p, alpha = brightness)
-            }
-        }
+        CometBorderGlow(cornerRadiusDp = 16.dp, modifier = Modifier.matchParentSize())
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -508,14 +516,14 @@ private fun RewardedAdCard(
 
 /**
  * Share the game via Android's share sheet. Sharing itself is never limited - the
- * button always opens the chooser - but the star payout only ever lands once, so
- * once [claimed] is true the card just drops the reward line and becomes a plain
- * "tell a friend" action.
+ * button always opens the chooser - but the star payout resets weekly, so once
+ * [claimedThisWeek] is true the card drops the reward line and glow and becomes a
+ * plain "tell a friend" action until the next week's window opens.
  */
 @Composable
 private fun ShareCard(
     reward: Int,
-    claimed: Boolean,
+    claimedThisWeek: Boolean,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -525,12 +533,16 @@ private fun ShareCard(
             .clip(shape)
             .background(Color(0xFF0A1F0E).copy(alpha = 0.9f))
             .border(2.dp, JungleCoast.copy(alpha = 0.55f), shape)
-            .clickable(onClick = onClick)
-            .padding(16.dp)
-            .testTag("share_game_button")
     ) {
+        if (!claimedThisWeek) {
+            CometBorderGlow(cornerRadiusDp = 16.dp, modifier = Modifier.matchParentSize())
+        }
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp)
+                .testTag("share_game_button"),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
@@ -552,7 +564,7 @@ private fun ShareCard(
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 1.sp
                 )
-                if (!claimed) {
+                if (!claimedThisWeek) {
                     Text(
                         text = "+$reward",
                         color = NeonYellow,
@@ -564,7 +576,7 @@ private fun ShareCard(
                 }
             }
             Text(
-                text = if (claimed) "Tell a friend, any time" else "One-time bonus for spreading the word",
+                text = if (claimedThisWeek) "Come back next week for more stars" else "Weekly bonus for spreading the word",
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,

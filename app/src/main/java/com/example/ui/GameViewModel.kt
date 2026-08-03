@@ -86,8 +86,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         /** Stars granted per completed rewarded-ad watch. */
         const val REWARDED_AD_STAR_REWARD = 150
         /** Daily cap on rewarded-ad watches, so it stays a bonus rather than the main loop. */
-        const val MAX_REWARDED_AD_WATCHES_PER_DAY = 5
-        /** One-time stars granted the first time the player shares the game. */
+        const val MAX_REWARDED_AD_WATCHES_PER_DAY = 8
+        /** Stars granted once per week for sharing the game. */
         const val SHARE_STAR_REWARD = 700
     }
 
@@ -189,18 +189,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Whether the one-time share reward has already been paid out. */
-    val hasClaimedShareReward: StateFlow<Boolean> = preferences.hasClaimedShareReward
+    /** Whether the share reward has already been claimed in the current week. */
+    val hasClaimedShareRewardThisWeek: StateFlow<Boolean> = preferences.hasClaimedShareRewardThisWeek
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
-     * Grants the one-time share reward, the first time the player actually picks a
-     * target app from the share sheet. Sharing itself is never limited - the caller
-     * can reopen the share sheet as often as it likes - but the payout can only ever
-     * land once, enforced atomically in storage so a stray double-call can't pay it
-     * out twice.
+     * Grants the share reward, the first time in a given week the player actually
+     * picks a target app from the share sheet. Sharing itself is never limited - the
+     * caller can reopen the share sheet as often as it likes - but the payout resets
+     * only once a week, enforced atomically in storage so a stray double-call can't
+     * pay it out twice in the same window.
      */
-    fun grantShareStarsOnce() {
+    fun grantShareStarsIfEligible() {
         viewModelScope.launch {
             preferences.claimShareRewardIfEligible(SHARE_STAR_REWARD)
         }
