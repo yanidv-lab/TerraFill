@@ -233,22 +233,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Checked once per level completion: did this run satisfy today's still-open
-     * mission? Graded against the peak stats tracked over the whole attempt (see the
-     * field comments near [maxSingleCaptureFraction]), not just the run's final
-     * numbers, so e.g. a big single capture early on still counts even if the level
-     * was finished off with several small ones.
+     * Checked once per level completion: did this run satisfy any of today's still-
+     * open missions? All three must be completed - possibly across several level
+     * attempts - before the day's reward unlocks. Each is graded against the peak
+     * stats tracked over the whole attempt (see the field comments near
+     * [maxSingleCaptureFraction]), not just the run's final numbers, so e.g. a big
+     * single capture early on still counts even if the level was finished off with
+     * several small ones. A single flawless, high-combo run can satisfy more than
+     * one mission at once.
      */
     private fun checkDailyMissionOnLevelComplete(activeEngine: GameEngine) {
         val today = dailyMission.value ?: return
-        if (today.completed) return
-        val satisfied = when (today.mission.type) {
-            DailyMissionType.CAPTURE_BURST -> maxSingleCaptureFraction * 100.0 >= today.mission.target
-            DailyMissionType.FLAWLESS_LEVEL -> activeEngine.crashCount == 0
-            DailyMissionType.COMBO_STREAK -> peakComboThisLevel >= today.mission.target
-        }
-        if (satisfied) {
-            viewModelScope.launch { preferences.markTodayMissionCompleted() }
+        for (progress in today.missions) {
+            if (progress.completed) continue
+            val satisfied = when (progress.mission.type) {
+                DailyMissionType.CAPTURE_BURST -> maxSingleCaptureFraction * 100.0 >= progress.mission.target
+                DailyMissionType.FLAWLESS_LEVEL -> activeEngine.crashCount == 0
+                DailyMissionType.COMBO_STREAK -> peakComboThisLevel >= progress.mission.target
+            }
+            if (satisfied) {
+                viewModelScope.launch { preferences.markMissionCompleted(progress.mission.type) }
+            }
         }
     }
 

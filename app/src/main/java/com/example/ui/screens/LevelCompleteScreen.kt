@@ -22,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -75,24 +74,18 @@ fun LevelCompleteScreen(
         shakeOffsetY.snapTo(0f)
     }
 
-    val bgGradient = Brush.verticalGradient(
-        colors = listOf(JungleDeep, JungleDusk, JungleDeep)
-    )
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(bgGradient)
-            .retroArcadeOverlay(scanlineOpacity = 0.15f)
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    // Same painted jungle scenery every menu screen shares, instead of a flat
+    // gradient plus a CRT scanline overlay - that combination read as synthetic
+    // and "AI-generated" next to the rest of the app's organic photo backdrops.
+    JungleBackdrop(modifier = modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp),
             modifier = Modifier
+                .align(Alignment.Center)
                 .fillMaxWidth()
                 .widthIn(max = 450.dp)
+                .padding(24.dp)
                 .offset { IntOffset(shakeOffsetX.value.roundToInt(), shakeOffsetY.value.roundToInt()) }
         ) {
             // Stars earned this run: each earned star pops in one after another

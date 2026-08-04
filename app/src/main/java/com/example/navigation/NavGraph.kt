@@ -18,6 +18,7 @@ import com.example.ui.screens.MainMenuScreen
 import com.example.ui.screens.OptionsScreen
 import com.example.ui.screens.ScoresScreen
 import com.example.ui.screens.ShopScreen
+import kotlinx.coroutines.delay
 
 /**
  * Orchestrates the screens and type-safe arguments inside the Jetpack Compose navigation structure.
@@ -184,6 +185,14 @@ fun NavGraph(
                     when (state.status) {
                         GameStateStatus.LEVEL_COMPLETE -> {
                             handledTerminal = true
+                            // The capture-flash/particle celebration on the last
+                            // closed region needs time to actually play - without
+                            // this, the screen jumped to Level Complete in the same
+                            // frame the capture landed, and the player never saw the
+                            // territory they'd just claimed. GameScreen keeps
+                            // rendering (and its animations keep running) for the
+                            // whole delay; only the navigation itself waits.
+                            delay(1300)
                             navController.navigate(
                                 Screen.LevelComplete.createRoute(
                                     levelNumber = state.levelNumber,
