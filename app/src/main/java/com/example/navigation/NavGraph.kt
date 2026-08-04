@@ -50,6 +50,8 @@ fun NavGraph(
         composable(route = Screen.MainMenu.route) {
             val lastPlayed by viewModel.lastPlayedLevel.collectAsStateWithLifecycle()
             val savedRun by viewModel.savedGame.collectAsStateWithLifecycle()
+            val dailyMission by viewModel.dailyMission.collectAsStateWithLifecycle()
+            val dailyMissionClaimReward by viewModel.dailyMissionClaimReward.collectAsStateWithLifecycle()
 
             // Menu soundtrack starts here and keeps playing through the sub-screens;
             // entering a level switches to the game track automatically.
@@ -75,7 +77,12 @@ fun NavGraph(
                     val level = savedRun?.level ?: return@MainMenuScreen
                     viewModel.resumeSavedGame()
                     navController.navigate(Screen.Game.createRoute(level))
-                }
+                },
+                dailyMission = dailyMission,
+                onRefreshDailyMission = { viewModel.refreshDailyMission() },
+                onClaimDailyMission = { viewModel.claimDailyMissionReward() },
+                dailyMissionClaimReward = dailyMissionClaimReward,
+                onConsumeDailyMissionClaim = { viewModel.consumeDailyMissionClaimEvent() }
             )
         }
 
