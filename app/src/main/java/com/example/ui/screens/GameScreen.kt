@@ -1126,17 +1126,25 @@ fun Playfield(
     }
 
     // Capture flash: a golden shockwave sweeps out from the claimed region's centre,
-    // lighting each cell as the wavefront reaches it, followed by a sparkle burst.
+    // lighting each cell as the wavefront reaches it, followed by a sparkle burst,
+    // a full-screen bloom pulse, and (for a sizeable claim) a soft jolt of the
+    // whole playfield - the same "juice" pillars the crash reaction already gets,
+    // now given to the game's actual reward moment instead of only its penalty.
     var captureFlashStart by remember { mutableStateOf(-1L) }
     var captureFlashCells by remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
     var captureCentroidX by remember { mutableStateOf(0f) }
     var captureCentroidY by remember { mutableStateOf(0f) }
     var captureRadius by remember { mutableStateOf(1f) }
+    // 0..1 - how big this capture reads visually, driving the bloom/shake strength
+    // below. Cell count matters more than the combo does: a huge single capture at
+    // x1 should still feel enormous, not muted just because no chain was running.
+    var captureImpact by remember { mutableStateOf(0f) }
     LaunchedEffect(state.captureCount) {
         if (state.captureCount > 0) {
             val cells = state.lastCapturedCells
             captureFlashCells = cells
             captureFlashStart = frameTimeMillis
+            captureImpact = (cells.size / 60f).coerceIn(0.15f, 1f)
             if (cells.isNotEmpty()) {
                 // Centroid + furthest-cell radius define the shockwave geometry.
                 var sx = 0f; var sy = 0f
@@ -1155,7 +1163,7 @@ fun Playfield(
             // a small escalating reward for keeping the combo alive, not just a flat
             // effect that looks the same whether this is a x1 or a x8 capture.
             val comboBoost = (state.scoreMultiplier - 1).coerceIn(0, 7)
-            val motesPerCell = 2 + comboBoost / 3
+            val motesPerCell = 4 + comboBoost / 2
             val sample = if (cells.size > 28) cells.shuffled().take(28) else cells
             for (c in sample) {
                 repeat(motesPerCell) {
@@ -1169,7 +1177,7 @@ fun Playfield(
                             vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd - 1.5f).toFloat(),
                             life = 0.5f + Math.random().toFloat() * 0.5f, maxLife = 1.0f,
                             color = if (hot) Color(0xFFFFE082) else NeonGreen,
-                            size = (0.10f + Math.random().toFloat() * 0.16f) * (1f + comboBoost * 0.04f),
+                            size = (0.12f + Math.random().toFloat() * 0.18f) * (1f + comboBoost * 0.05f),
                             gravity = 4.5f
                         )
                     )
@@ -1377,16 +1385,38 @@ fun Playfield(
                 shakeX = (sin(now / 11.0) * amp).toFloat()
                 shakeY = (cos(now / 13.0) * amp).toFloat()
             }
+            // Capture shake: a much gentler jolt than a crash, scaled by how much
+            // land just changed hands - a one-cell nibble barely moves the camera,
+            // while a sweeping close-out gives a satisfying thump.
+            val captureShakeDurMs = 260
+            val captureAge = now - captureFlashStart
+            if (captureFlashStart >= 0 && captureAge < captureShakeDurMs) {
+                val falloff = 1f - captureAge / captureShakeDurMs.toFloat()
+                val amp = cellMin * 0.14f * captureImpact * falloff
+                shakeX += (sin(now / 9.0) * amp).toFloat()
+                shakeY += (cos(now / 7.5) * amp).toFloat()
+            }
 
             translate(left = shakeX, top = shakeY) {
                 // ---------- 3. Capture flash: a golden shockwave sweeps the claimed land ----------
-                val flashDurMs = 850f
+                val flashDurMs = 1000f
                 val flashAge = now - captureFlashStart
                 if (captureFlashStart >= 0 && flashAge < flashDurMs) {
                     val prog = flashAge / flashDurMs                 // 0..1 over the flash
                     // Wavefront radius (in cells) expands a bit past the region edge.
                     val waveR = prog * (captureRadius + 3f)
                     val centroidPx = Offset(captureCentroidX * cellW, captureCentroidY * cellH)
+                    // A quick, wide bloom pulse across the whole field, hottest right as
+                    // the capture lands - the "flash" half of the effect, distinct from
+                    // the wavefront that sweeps the claimed cells themselves.
+                    val bloomT = (flashAge / 260f).coerceIn(0f, 1f)
+                    if (bloomT < 1f) {
+                        drawRect(
+                            color = Color(0xFFFFE082),
+                            size = size,
+                            alpha = (1f - bloomT) * 0.22f * captureImpact
+                        )
+                    }
                     for (cell in captureFlashCells) {
                         val d = kotlin.math.hypot(
                             (cell.first + 0.5f) - captureCentroidX,
@@ -1406,7 +1436,9 @@ fun Playfield(
                             alpha = 0.85f * bright * (1f - prog * 0.3f)
                         )
                     }
-                    // Expanding golden ring outline riding the wavefront.
+                    // Two expanding golden rings riding the wavefront - a bright fast
+                    // inner ring right on its heel, and the original softer outer one a
+                    // beat behind - reads as a much punchier shockwave than one ring alone.
                     val ringR = waveR * cellMin
                     if (ringR > cellMin) {
                         drawCircle(
@@ -1415,6 +1447,16 @@ fun Playfield(
                             center = centroidPx,
                             alpha = (1f - prog) * 0.55f,
                             style = Stroke(width = cellMin * 0.35f)
+                        )
+                    }
+                    val innerRingR = (waveR - 1.5f) * cellMin
+                    if (innerRingR > cellMin) {
+                        drawCircle(
+                            color = Color.White,
+                            radius = innerRingR,
+                            center = centroidPx,
+                            alpha = (1f - prog) * 0.4f,
+                            style = Stroke(width = cellMin * 0.18f)
                         )
                     }
                 }

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -20,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
@@ -55,6 +57,7 @@ import com.example.ui.theme.*
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 /**
@@ -113,13 +116,25 @@ fun MainMenuScreen(
                     modifier = Modifier.testTag("resume_button")
                 )
             }
-            MenuActionButton(
-                label = "PLAY",
-                icon = Icons.Default.PlayArrow,
-                filled = resumeLevel == null,
-                onClick = onPlay,
-                modifier = Modifier.testTag("play_button")
-            )
+            // The daily-mission badge rides on the corner of PLAY itself - that's
+            // where the levels the mission is graded on actually live, and it's the
+            // button every session already touches, so the badge can't go unnoticed.
+            Box(modifier = Modifier.fillMaxWidth()) {
+                MenuActionButton(
+                    label = "PLAY",
+                    icon = Icons.Default.PlayArrow,
+                    filled = resumeLevel == null,
+                    onClick = onPlay,
+                    modifier = Modifier.testTag("play_button")
+                )
+                DailyMissionBadge(
+                    mission = dailyMission,
+                    onClick = { showMissionDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 10.dp, y = (-14).dp)
+                )
+            }
             MenuActionButton(
                 label = "OPTIONS",
                 icon = Icons.Default.Settings,
@@ -142,14 +157,6 @@ fun MainMenuScreen(
             )
         }
 
-        DailyMissionBadge(
-            mission = dailyMission,
-            onClick = { showMissionDialog = true },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 20.dp, end = 16.dp)
-        )
-
         dailyMission?.let { mission ->
             if (showMissionDialog) {
                 DailyMissionDialog(
@@ -167,10 +174,10 @@ fun MainMenuScreen(
         // caller (the ViewModel) once we tell it we've shown it.
         if (dailyMissionClaimReward != null) {
             LaunchedEffect(dailyMissionClaimReward) {
-                kotlinx.coroutines.delay(1300)
+                kotlinx.coroutines.delay(1800)
                 onConsumeDailyMissionClaim()
             }
-            FlyingStarsBurst(modifier = Modifier.matchParentSize())
+            FlyingStarsBurst(reward = dailyMissionClaimReward, modifier = Modifier.matchParentSize())
         }
     }
 }
@@ -187,8 +194,9 @@ private fun DailyMissionBadge(
     modifier: Modifier = Modifier
 ) {
     if (mission == null) return
-    val readyToClaim = mission.completed && !mission.claimed
+    val readyToClaim = mission.allCompleted && !mission.claimed
     val doneForToday = mission.claimed
+    val completedCount = mission.missions.count { it.completed }
 
     val infinite = rememberInfiniteTransition(label = "daily_mission_badge")
     // A slow breathing pulse while the mission is still open (draws the eye without
@@ -253,21 +261,24 @@ private fun DailyMissionBadge(
                 modifier = Modifier.size(24.dp)
             )
         }
-        // "!" flag while the mission still needs doing - gone the moment it's done,
-        // whether or not the reward has been claimed yet.
-        if (!mission.completed) {
+        // "x/3" progress flag while missions still need doing - gone the moment all
+        // three are done, whether or not the reward has been claimed yet. Spelling
+        // out the count (not just "!") is what makes it obvious there's more than
+        // one task waiting, without having to open the dialog to find out.
+        if (!mission.allCompleted) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(JungleEmber),
+                    .offset(x = 4.dp, y = (-2).dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(JungleEmber)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "!",
+                    text = "$completedCount/${mission.missions.size}",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace
                 )
@@ -289,7 +300,7 @@ private fun DailyMissionDialog(
     onClaim: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val readyToClaim = mission.completed && !mission.claimed
+    val readyToClaim = mission.allCompleted && !mission.claimed
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = JunglePanel,
@@ -299,7 +310,7 @@ private fun DailyMissionDialog(
         modifier = Modifier.border(2.dp, NeonYellow.copy(alpha = 0.7f), RoundedCornerShape(18.dp)),
         title = {
             Text(
-                text = "DAILY MISSION",
+                text = "DAILY MISSIONS",
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 1.sp
@@ -308,10 +319,30 @@ private fun DailyMissionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = missionDescription(mission.mission),
+                    text = "Complete all three today to claim the reward",
+                    color = Color.White.copy(alpha = 0.6f),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp
+                    fontSize = 11.sp
                 )
+                for (progress in mission.missions) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (progress.completed) Icons.Default.Check else Icons.Default.Star,
+                            contentDescription = null,
+                            tint = if (progress.completed) LeafGreen else Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = missionDescription(progress.mission),
+                            color = if (progress.completed) Color.White.copy(alpha = 0.5f) else Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -321,7 +352,7 @@ private fun DailyMissionDialog(
                         text = when {
                             mission.claimed -> "+${mission.reward} stars claimed today - come back tomorrow"
                             readyToClaim -> "+${mission.reward} stars ready to claim"
-                            else -> "+${mission.reward} stars when you finish it"
+                            else -> "+${mission.reward} stars when all three are done"
                         },
                         color = NeonYellow,
                         fontFamily = FontFamily.Monospace,
@@ -362,39 +393,87 @@ private fun DailyMissionDialog(
 private data class StarSeed(val angleRad: Float, val speed: Float, val radius: Float, val delay: Float)
 
 /**
- * A one-shot burst of twinkling stars flying outward and up from screen centre
- * with a fade-out, played when the player claims a reward. Composed only while
- * the caller wants it on screen - it plays exactly once and does not loop.
+ * A one-shot celebration played when the player claims their daily reward: a
+ * golden bloom flashes behind a bouncing "+N" star readout while a wide ring of
+ * twinkling stars (each trailing a short glimmer) flies outward and up before
+ * fading. Composed only while the caller wants it on screen - it plays exactly
+ * once and does not loop.
  */
 @Composable
-private fun FlyingStarsBurst(modifier: Modifier = Modifier) {
+private fun FlyingStarsBurst(reward: Int, modifier: Modifier = Modifier) {
     val progress = remember { Animatable(0f) }
+    val textScale = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        progress.animateTo(1f, animationSpec = tween(1200, easing = LinearOutSlowInEasing))
+        launch { progress.animateTo(1f, animationSpec = tween(1500, easing = LinearOutSlowInEasing)) }
+        textScale.animateTo(1f, animationSpec = spring(dampingRatio = 0.45f, stiffness = 260f))
     }
     val stars = remember {
-        List(24) {
+        List(36) {
             StarSeed(
                 angleRad = Random.nextDouble(0.0, 2.0 * PI).toFloat(),
-                speed = 0.55f + Random.nextFloat() * 0.45f,
-                radius = 9f + Random.nextFloat() * 9f,
-                delay = Random.nextFloat() * 0.25f
+                speed = 0.5f + Random.nextFloat() * 0.6f,
+                radius = 8f + Random.nextFloat() * 11f,
+                delay = Random.nextFloat() * 0.3f
             )
         }
     }
-    Canvas(modifier = modifier) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val reach = kotlin.math.min(size.width, size.height) * 0.55f
-        for (s in stars) {
-            val t = ((progress.value - s.delay) / (1f - s.delay)).coerceIn(0f, 1f)
-            if (t <= 0f) continue
-            val eased = 1f - (1f - t) * (1f - t) // ease-out
-            val dist = eased * reach * s.speed
-            val x = cx + cos(s.angleRad) * dist
-            val y = cy + sin(s.angleRad) * dist - eased * reach * 0.35f // slight upward drift
-            val alpha = (1f - t).coerceIn(0f, 1f)
-            drawTwinkleStar(center = Offset(x, y), radius = s.radius, color = NeonYellow.copy(alpha = alpha))
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val reach = kotlin.math.min(size.width, size.height) * 0.6f
+
+            // A soft golden bloom that blows out fast, then fades - the "thump"
+            // behind the flying stars rather than just a bare particle field.
+            val flashT = (progress.value / 0.4f).coerceIn(0f, 1f)
+            drawCircle(
+                color = NeonYellow,
+                radius = reach * (0.18f + flashT * 0.6f),
+                center = Offset(cx, cy),
+                alpha = (1f - flashT) * 0.35f
+            )
+
+            for (s in stars) {
+                val t = ((progress.value - s.delay) / (1f - s.delay)).coerceIn(0f, 1f)
+                if (t <= 0f) continue
+                val eased = 1f - (1f - t) * (1f - t) // ease-out
+                val dist = eased * reach * s.speed
+                val x = cx + cos(s.angleRad) * dist
+                val y = cy + sin(s.angleRad) * dist - eased * reach * 0.35f // slight upward drift
+                val alpha = (1f - t).coerceIn(0f, 1f)
+                // A faint glimmer trailing just behind the star's current position,
+                // so it reads as flying rather than teleporting outward in steps.
+                val trailDist = (dist - reach * 0.08f).coerceAtLeast(0f)
+                val trailX = cx + cos(s.angleRad) * trailDist
+                val trailY = cy + sin(s.angleRad) * trailDist - eased * reach * 0.30f
+                drawLine(
+                    color = NeonYellow.copy(alpha = alpha * 0.3f),
+                    start = Offset(trailX, trailY),
+                    end = Offset(x, y),
+                    strokeWidth = s.radius * 0.3f
+                )
+                drawTwinkleStar(center = Offset(x, y), radius = s.radius, color = NeonYellow.copy(alpha = alpha))
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.graphicsLayer {
+                val s = textScale.value
+                scaleX = s
+                scaleY = s
+                // Holds fully visible through most of the burst, then fades with the stars.
+                alpha = (1f - ((progress.value - 0.55f) / 0.45f)).coerceIn(0f, 1f)
+            }
+        ) {
+            Icon(Icons.Default.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(30.dp))
+            Text(
+                text = "+$reward",
+                color = NeonYellow,
+                fontSize = 34.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }

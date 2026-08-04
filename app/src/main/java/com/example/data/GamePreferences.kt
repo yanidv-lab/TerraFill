@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.engine.DailyMission
+import com.example.engine.DailyMissionProgress
 import com.example.engine.DailyMissionType
 import com.example.engine.DailyMissions
 import kotlinx.coroutines.flow.Flow
@@ -42,13 +43,15 @@ data class SavedGame(
 )
 
 /**
- * Today's mission plus where the player stands on it - what [GamePreferences]
- * exposes to the rest of the app, so nothing outside this file needs to know how
- * completion, claiming, or the streak are actually stored.
+ * Today's three missions plus where the player stands on them - what
+ * [GamePreferences] exposes to the rest of the app, so nothing outside this file
+ * needs to know how completion, claiming, or the streak are actually stored.
  */
 data class DailyMissionState(
-    val mission: DailyMission,
-    val completed: Boolean,
+    /** All three of today's missions, always in [DailyMissionType] order. */
+    val missions: List<DailyMissionProgress>,
+    /** True once every mission in [missions] is completed - the reward unlocks. */
+    val allCompleted: Boolean,
     val claimed: Boolean,
     /**
      * Before claiming: the streak day *claiming right now* would land on - a
@@ -115,17 +118,21 @@ class GamePreferences(context: Context) {
         // within the same week are free of any bookkeeping.
         private val SHARE_REWARD_WEEK = longPreferencesKey("share_reward_week")
 
-        // Daily mission: which day it was rolled for, what it is, and where the
-        // player stands on it. STREAK_DAY/LAST_CLAIM_DAY persist across the mission
-        // itself resetting daily - they are what makes the reward climb on
-        // consecutive days instead of paying out 100 stars forever.
+        // Daily missions: which day they were rolled for, what each of the three is,
+        // and where the player stands on them. All three must be completed before
+        // DAILY_MISSION_CLAIMED can ever become true (see claimDailyMission). Target
+        // and completed are per-type, keyed dynamically so a new DailyMissionType
+        // needs no new constant here. STREAK_DAY/LAST_CLAIM_DAY persist across the
+        // missions themselves resetting daily - they are what makes the reward climb
+        // on consecutive days instead of paying out 100 stars forever.
         private val DAILY_MISSION_DAY = longPreferencesKey("daily_mission_day")
-        private val DAILY_MISSION_TYPE = stringPreferencesKey("daily_mission_type")
-        private val DAILY_MISSION_TARGET = intPreferencesKey("daily_mission_target")
-        private val DAILY_MISSION_COMPLETED = booleanPreferencesKey("daily_mission_completed")
         private val DAILY_MISSION_CLAIMED = booleanPreferencesKey("daily_mission_claimed")
         private val DAILY_MISSION_STREAK_DAY = intPreferencesKey("daily_mission_streak_day")
         private val DAILY_MISSION_LAST_CLAIM_DAY = longPreferencesKey("daily_mission_last_claim_day")
+        private fun dailyMissionTargetKey(type: DailyMissionType) =
+            intPreferencesKey("daily_mission_target_${type.name}")
+        private fun dailyMissionCompletedKey(type: DailyMissionType) =
+            booleanPreferencesKey("daily_mission_completed_${type.name}")
 
         /** Days since the epoch, in the device's clock - all that matters is that it rolls over once a day. */
         private fun currentDayEpoch(): Long = System.currentTimeMillis() / 86_400_000L
@@ -181,15 +188,16 @@ class GamePreferences(context: Context) {
         return claimed
     }
 
-    /** Today's mission and the player's progress on it, or null before it's ever been rolled. */
+    /** Today's three missions and the player's progress on them, or null before they've ever been rolled. */
     val dailyMissionState: Flow<DailyMissionState?> = appContext.dataStore.data.map { preferences ->
         val storedDay = preferences[DAILY_MISSION_DAY] ?: return@map null
         if (storedDay != currentDayEpoch()) return@map null // stale - ensureTodayMission hasn't run yet today
-        val type = preferences[DAILY_MISSION_TYPE]?.let {
-            runCatching { DailyMissionType.valueOf(it) }.getOrNull()
-        } ?: return@map null
-        val target = preferences[DAILY_MISSION_TARGET] ?: 0
-        val completed = preferences[DAILY_MISSION_COMPLETED] == true
+        val missions = DailyMissionType.entries.map { type ->
+            val target = preferences[dailyMissionTargetKey(type)] ?: 0
+            val completed = preferences[dailyMissionCompletedKey(type)] == true
+            DailyMissionProgress(DailyMission(type, target), completed)
+        }
+        val allCompleted = missions.all { it.completed }
         val claimed = preferences[DAILY_MISSION_CLAIMED] == true
         val storedStreakDay = preferences[DAILY_MISSION_STREAK_DAY] ?: 0
         val lastClaimDay = preferences[DAILY_MISSION_LAST_CLAIM_DAY] ?: -1L
@@ -200,48 +208,49 @@ class GamePreferences(context: Context) {
             val consecutive = lastClaimDay == storedDay - 1
             DailyMissions.nextStreakDay(storedStreakDay, consecutive)
         }
-        DailyMissionState(DailyMission(type, target), completed, claimed, streakDay)
+        DailyMissionState(missions, allCompleted, claimed, streakDay)
     }
 
     /**
-     * Makes sure today has a mission rolled, generating a fresh one (scaled to
-     * [playerLevel]) the first time this is called on a new day. Cheap to call every
-     * time the main menu appears - it's a no-op once today's mission already exists.
+     * Makes sure today has its three missions rolled, generating a fresh set (scaled
+     * to [playerLevel]) the first time this is called on a new day. Cheap to call
+     * every time the main menu appears - it's a no-op once today's missions already exist.
      */
     suspend fun ensureTodayMission(playerLevel: Int) {
         appContext.dataStore.edit { preferences ->
             val today = currentDayEpoch()
             if (preferences[DAILY_MISSION_DAY] == today) return@edit
-            val mission = DailyMissions.forDay(today, playerLevel)
             preferences[DAILY_MISSION_DAY] = today
-            preferences[DAILY_MISSION_TYPE] = mission.type.name
-            preferences[DAILY_MISSION_TARGET] = mission.target
-            preferences[DAILY_MISSION_COMPLETED] = false
             preferences[DAILY_MISSION_CLAIMED] = false
+            for (mission in DailyMissions.forLevel(playerLevel)) {
+                preferences[dailyMissionTargetKey(mission.type)] = mission.target
+                preferences[dailyMissionCompletedKey(mission.type)] = false
+            }
         }
     }
 
-    /** Marks today's mission as completed (ready to claim), if it isn't already. */
-    suspend fun markTodayMissionCompleted() {
+    /** Marks today's [type] mission as completed (ready toward the day's reward), if it isn't already. */
+    suspend fun markMissionCompleted(type: DailyMissionType) {
         appContext.dataStore.edit { preferences ->
             if (preferences[DAILY_MISSION_DAY] != currentDayEpoch()) return@edit
-            preferences[DAILY_MISSION_COMPLETED] = true
+            preferences[dailyMissionCompletedKey(type)] = true
         }
     }
 
     /**
-     * Pays out today's mission reward, once - checked and set atomically so a stray
-     * double-tap on the claim button can't double-grant it. The reward climbs with
-     * the streak (see [DailyMissions.streakReward]), which advances only when the
-     * previous claim was yesterday; any gap resets it to day 1. Returns the amount
-     * claimed, or null if there was nothing eligible to claim.
+     * Pays out today's reward, once all three missions are completed - checked and
+     * set atomically so a stray double-tap on the claim button can't double-grant
+     * it. The reward climbs with the streak (see [DailyMissions.streakReward]),
+     * which advances only when the previous claim was yesterday; any gap resets it
+     * to day 1. Returns the amount claimed, or null if there was nothing eligible to claim.
      */
     suspend fun claimDailyMission(): Int? {
         var reward: Int? = null
         appContext.dataStore.edit { preferences ->
             val today = currentDayEpoch()
             if (preferences[DAILY_MISSION_DAY] != today) return@edit
-            if (preferences[DAILY_MISSION_COMPLETED] != true) return@edit
+            val allCompleted = DailyMissionType.entries.all { preferences[dailyMissionCompletedKey(it)] == true }
+            if (!allCompleted) return@edit
             if (preferences[DAILY_MISSION_CLAIMED] == true) return@edit
 
             val lastClaimDay = preferences[DAILY_MISSION_LAST_CLAIM_DAY] ?: -1L

@@ -7,24 +7,23 @@ import org.junit.Test
 class DailyMissionTest {
 
     @Test
-    fun `the same day and level always yields the same mission`() {
-        val a = DailyMissions.forDay(dayEpoch = 12345L, playerLevel = 7)
-        val b = DailyMissions.forDay(dayEpoch = 12345L, playerLevel = 7)
+    fun `forLevel returns exactly one mission of every type`() {
+        val missions = DailyMissions.forLevel(playerLevel = 10)
+        assertEquals(DailyMissionType.entries.toSet(), missions.map { it.type }.toSet())
+        assertEquals(DailyMissionType.entries.size, missions.size)
+    }
+
+    @Test
+    fun `the same level always yields the same missions`() {
+        val a = DailyMissions.forLevel(playerLevel = 7)
+        val b = DailyMissions.forLevel(playerLevel = 7)
         assertEquals(a, b)
     }
 
     @Test
-    fun `different days can yield different mission types`() {
-        val types = (0L until 30L).map { DailyMissions.forDay(dayEpoch = it, playerLevel = 10).type }.toSet()
-        assertTrue("expected some variety across 30 days, got only $types", types.size > 1)
-    }
-
-    @Test
     fun `capture burst target is gentle at level 1 and stays capped at high levels`() {
-        // Fix a day whose type happens to be CAPTURE_BURST at both ends of the range.
-        val day = firstDayOfType(DailyMissionType.CAPTURE_BURST)
-        val early = DailyMissions.forDay(day, playerLevel = 1)
-        val late = DailyMissions.forDay(day, playerLevel = 60)
+        val early = missionOf(DailyMissions.forLevel(playerLevel = 1), DailyMissionType.CAPTURE_BURST)
+        val late = missionOf(DailyMissions.forLevel(playerLevel = 60), DailyMissionType.CAPTURE_BURST)
 
         assertEquals(35, early.target)
         assertEquals(55, late.target)
@@ -33,9 +32,8 @@ class DailyMissionTest {
 
     @Test
     fun `combo streak target is gentle at level 1 and stays capped at high levels`() {
-        val day = firstDayOfType(DailyMissionType.COMBO_STREAK)
-        val early = DailyMissions.forDay(day, playerLevel = 1)
-        val late = DailyMissions.forDay(day, playerLevel = 60)
+        val early = missionOf(DailyMissions.forLevel(playerLevel = 1), DailyMissionType.COMBO_STREAK)
+        val late = missionOf(DailyMissions.forLevel(playerLevel = 60), DailyMissionType.COMBO_STREAK)
 
         assertEquals(3, early.target)
         assertEquals(5, late.target)
@@ -43,8 +41,7 @@ class DailyMissionTest {
 
     @Test
     fun `flawless level mission has no numeric target`() {
-        val day = firstDayOfType(DailyMissionType.FLAWLESS_LEVEL)
-        val mission = DailyMissions.forDay(day, playerLevel = 25)
+        val mission = missionOf(DailyMissions.forLevel(playerLevel = 25), DailyMissionType.FLAWLESS_LEVEL)
         assertEquals(0, mission.target)
     }
 
@@ -74,7 +71,6 @@ class DailyMissionTest {
         assertEquals(1, DailyMissions.nextStreakDay(currentStreakDay = 5, consecutive = false))
     }
 
-    /** Smallest day epoch (from a small deterministic search window) whose mission is [type]. */
-    private fun firstDayOfType(type: DailyMissionType): Long =
-        (0L until 50L).first { DailyMissions.forDay(it, playerLevel = 1).type == type }
+    private fun missionOf(missions: List<DailyMission>, type: DailyMissionType): DailyMission =
+        missions.first { it.type == type }
 }
