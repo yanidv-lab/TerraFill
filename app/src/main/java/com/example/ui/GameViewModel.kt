@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.DailyMissionState
 import com.example.data.GamePreferences
 import com.example.data.SavedGame
 import com.example.engine.*
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -106,6 +108,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // Clock-warning edges, so each threshold sounds exactly once per level
     private var warnedAt30 = false
     private var warnedAt10 = false
+
+    // Peak stats for the CURRENT level attempt, used only to grade the daily
+    // mission at level-complete - reset on every startLevel(), updated on every
+    // capture. Deliberately not part of GameUiState: nothing in the UI needs them
+    // moment-to-moment, only the level-complete check does.
+    private var maxSingleCaptureFraction = 0.0
+    private var peakComboThisLevel = 1
 
     // Grid snapshot cache: only rebuilt when the engine's grid actually changes,
     // so most frames (which only move enemies) allocate nothing for the grid.
@@ -204,6 +213,61 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             preferences.claimShareRewardIfEligible(SHARE_STAR_REWARD)
         }
+    }
+
+    /** Today's mission and the player's progress on it - null until [refreshDailyMission] rolls one. */
+    val dailyMission: StateFlow<DailyMissionState?> = preferences.dailyMissionState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * Rolls today's mission if one hasn't been rolled yet (a no-op every other time
+     * it's called that day). Reads the persisted highest-unlocked-level directly
+     * rather than the cached [highestUnlockedLevel] StateFlow, so the very first
+     * call of a session - before that StateFlow has necessarily loaded its real
+     * value - can't lock in a mission scaled to the wrong level for the whole day.
+     */
+    fun refreshDailyMission() {
+        viewModelScope.launch {
+            preferences.ensureTodayMission(preferences.highestUnlockedLevel.first())
+        }
+    }
+
+    /**
+     * Checked once per level completion: did this run satisfy today's still-open
+     * mission? Graded against the peak stats tracked over the whole attempt (see the
+     * field comments near [maxSingleCaptureFraction]), not just the run's final
+     * numbers, so e.g. a big single capture early on still counts even if the level
+     * was finished off with several small ones.
+     */
+    private fun checkDailyMissionOnLevelComplete(activeEngine: GameEngine) {
+        val today = dailyMission.value ?: return
+        if (today.completed) return
+        val satisfied = when (today.mission.type) {
+            DailyMissionType.CAPTURE_BURST -> maxSingleCaptureFraction * 100.0 >= today.mission.target
+            DailyMissionType.FLAWLESS_LEVEL -> activeEngine.crashCount == 0
+            DailyMissionType.COMBO_STREAK -> peakComboThisLevel >= today.mission.target
+        }
+        if (satisfied) {
+            viewModelScope.launch { preferences.markTodayMissionCompleted() }
+        }
+    }
+
+    // One-shot signal for the UI to play the flying-stars claim animation: the
+    // amount just claimed, consumed (set back to null) once the UI has shown it.
+    private val _dailyMissionClaimReward = MutableStateFlow<Int?>(null)
+    val dailyMissionClaimReward: StateFlow<Int?> = _dailyMissionClaimReward.asStateFlow()
+
+    /** Claims today's mission reward, if it's completed and not already claimed. */
+    fun claimDailyMissionReward() {
+        viewModelScope.launch {
+            val reward = preferences.claimDailyMission()
+            if (reward != null) _dailyMissionClaimReward.value = reward
+        }
+    }
+
+    /** Called by the UI once it has started the claim animation for the last reward. */
+    fun consumeDailyMissionClaimEvent() {
+        _dailyMissionClaimReward.value = null
     }
 
     /** Buys one spare life if the player can afford it and is under the cap. */
@@ -375,6 +439,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastStatus = GameStateStatus.RUNNING
         warnedAt30 = false
         warnedAt10 = false
+        maxSingleCaptureFraction = 0.0
+        peakComboThisLevel = 1
         cachedGridVersion = -1
         sound.startMusic()
         viewModelScope.launch { preferences.saveLastPlayedLevel(config.levelNumber) }
@@ -500,6 +566,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Checkpoint the run: an interruption now costs at most the progress
             // made since the last claimed area.
             saveProgressSnapshot()
+            // Peak stats for today's mission - see the field comments above.
+            val fieldCells = activeEngine.width * activeEngine.height
+            if (fieldCells > 0) {
+                val fraction = activeEngine.lastCapturedCells.size.toDouble() / fieldCells
+                if (fraction > maxSingleCaptureFraction) maxSingleCaptureFraction = fraction
+            }
+            if (activeEngine.scoreMultiplier > peakComboThisLevel) {
+                peakComboThisLevel = activeEngine.scoreMultiplier
+            }
         }
         if (activeEngine.crashCount > lastCrashCount) {
             lastCrashCount = activeEngine.crashCount
@@ -560,6 +635,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 // legitimate way to grind toward an expensive skin.
                 preferences.addStars(activeEngine.starsEarned)
             }
+            checkDailyMissionOnLevelComplete(activeEngine)
         }
 
         updateUiStateFromEngine(activeEngine)

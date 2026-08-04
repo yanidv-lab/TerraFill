@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -935,6 +938,21 @@ fun HUDHeader(
                     fontFamily = FontFamily.Monospace
                 )
                 if (state.scoreMultiplier > 1) {
+                    // Higher combos pulse faster and glow hotter (yellow -> orange) -
+                    // a quiet build toward the max multiplier rather than one flat badge
+                    // that looks identical whether this is a x2 or a x8 chain.
+                    val comboBoost = (state.scoreMultiplier - 1).coerceIn(0, 7)
+                    val pulseScale by rememberInfiniteTransition(label = "combo_pulse")
+                        .animateFloat(
+                            initialValue = 1f,
+                            targetValue = 1f + comboBoost * 0.03f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(420 - comboBoost * 30, easing = LinearEasing),
+                                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                            ),
+                            label = "combo_pulse_scale"
+                        )
+                    val comboColor = lerpColor(NeonYellow, Color(0xFFFF8A3D), comboBoost / 7f)
                     Text(
                         text = "COMBO x${state.scoreMultiplier}",
                         color = Color.Black,
@@ -942,8 +960,9 @@ fun HUDHeader(
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier
+                            .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
                             .clip(RoundedCornerShape(5.dp))
-                            .background(NeonYellow)
+                            .background(comboColor)
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     )
                 }
@@ -1131,20 +1150,27 @@ fun Playfield(
                 }
                 captureRadius = maxD
             }
-            // Sparkle burst: gold + green motes lifting off the reclaimed land.
+            // Sparkle burst: gold + green motes lifting off the reclaimed land. Chaining
+            // captures within the combo window earns a bigger, hotter burst each step -
+            // a small escalating reward for keeping the combo alive, not just a flat
+            // effect that looks the same whether this is a x1 or a x8 capture.
+            val comboBoost = (state.scoreMultiplier - 1).coerceIn(0, 7)
+            val motesPerCell = 2 + comboBoost / 3
             val sample = if (cells.size > 28) cells.shuffled().take(28) else cells
             for (c in sample) {
-                repeat(2) {
+                repeat(motesPerCell) {
                     val ang = Math.random() * 2 * Math.PI
-                    val spd = 2f + Math.random().toFloat() * 4.5f
-                    val gold = Math.random() < 0.5
+                    val spd = 2f + Math.random().toFloat() * 4.5f + comboBoost * 0.35f
+                    // Higher combos skew the palette hotter (more white-gold, less green).
+                    val hot = Math.random() < 0.5 + comboBoost * 0.05
                     particles.add(
                         GameParticle(
                             x = c.first + 0.5f, y = c.second + 0.5f,
                             vx = (cos(ang) * spd).toFloat(), vy = (sin(ang) * spd - 1.5f).toFloat(),
                             life = 0.5f + Math.random().toFloat() * 0.5f, maxLife = 1.0f,
-                            color = if (gold) Color(0xFFFFE082) else NeonGreen,
-                            size = 0.10f + Math.random().toFloat() * 0.16f, gravity = 4.5f
+                            color = if (hot) Color(0xFFFFE082) else NeonGreen,
+                            size = (0.10f + Math.random().toFloat() * 0.16f) * (1f + comboBoost * 0.04f),
+                            gravity = 4.5f
                         )
                     )
                 }
