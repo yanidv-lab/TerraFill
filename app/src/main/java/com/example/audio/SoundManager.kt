@@ -172,7 +172,13 @@ class SoundManager(context: Context) {
             val buffer = ShortArray(bufferSize)
             while (isActive) {
                 if (!soundEnabled || sfxQueue.isEmpty()) {
-                    delay(20)
+                    // Short poll: a gameplay event (move, capture, crash...) can land
+                    // right after this delay starts, and whatever it queues won't be
+                    // picked up until the loop wakes up again. At 20ms that gap alone
+                    // was audible as a lag behind the action that triggered it: a
+                    // 2ms poll keeps the same idle-CPU behaviour while cutting the
+                    // worst-case silence-to-first-sample gap by an order of magnitude.
+                    delay(2)
                     continue
                 }
 
@@ -204,7 +210,7 @@ class SoundManager(context: Context) {
                         Log.e("SoundManager", "Error writing to SFX AudioTrack", e)
                     }
                 } else {
-                    delay(20)
+                    delay(2)
                 }
             }
             
